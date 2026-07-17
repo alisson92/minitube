@@ -24,13 +24,20 @@ O ambiente sobe (`terraform apply`), é testado e observado, e **é destruído a
 ## Estrutura
 
 ```
-terraform/   # bootstrap do backend + ambiente lab (VPC, EKS, S3, CloudFront, DNS)
+terraform/
+  bootstrap/       # bucket S3 de state (versionado, criptografado, lock nativo)
+  bootstrap-iam/   # usuário operacional cloudlab-operator (admin-only, via CloudShell)
+  envs/lab/        # VPC, EKS, S3, CloudFront, DNS (a criar)
 gitops/      # manifests observados pelo ArgoCD (plataforma e app)
 app/         # API e transcoder + Dockerfiles
 load/        # cenários k6
 docs/        # motivação, ADRs e runbooks
 ```
 
+## Como começar
+
+O bootstrap de uma conta AWS nova (conta dedicada, usuário operacional via Terraform, backend remoto de state) está documentado passo a passo em [`docs/runbooks/aws-account-bootstrap.md`](docs/runbooks/aws-account-bootstrap.md).
+
 ## Status
 
-🚧 **Fase 0 — Documentação.** O roteiro completo das fases, as convenções e o estado vivo do projeto estão em [`CLAUDE.md`](CLAUDE.md).
+🚧 **Fase 1 — Fundação Terraform, em andamento.** Backend remoto de state e usuário operacional (`cloudlab-operator`) já criados e validados. Próximo passo: módulo de VPC. O roteiro completo das fases, as convenções e o estado vivo do projeto estão em [`CLAUDE.md`](CLAUDE.md).
