@@ -92,7 +92,9 @@ Cada fase tem um critério de conclusão explícito. Não avançar de fase sem f
 
 > Atualizar ao final de cada sessão (data + o que mudou + próximos passos).
 
-- **Fase atual:** 0 — Documentação
-- **Infraestrutura de pé:** nenhuma
-- **Feito até aqui:** definição da arquitetura alvo, das fases e das convenções; base documental criada (este arquivo + motivação + README)
-- **Próximos passos:** commitar a fase 0; iniciar a fase 1 pelo bootstrap do backend remoto do Terraform
+- **Fase atual:** 1 — Fundação Terraform (em andamento)
+- **Infraestrutura de pé:** nenhuma (primeiro `terraform apply` falhou por falta de permissão do usuário IAM antigo — ver abaixo)
+- **Conta AWS:** a conta antiga (`455162168775`, usuário `lab-operator`) foi abandonada por não ser rastreável (origem/administrador desconhecidos). Nova conta dedicada criada com e-mail `alisson.cloudlab@gmail.com`, para uso em múltiplos projetos pessoais de laboratório, não só o MiniTube. Usuário operacional de uso diário: `cloudlab-operator`, criado via Terraform (não manualmente) com policy `PowerUserAccess`. Decisão registrada em [`docs/adr/002-aws-account-and-iam-bootstrap.md`](docs/adr/002-aws-account-and-iam-bootstrap.md).
+- **Exceção registrada ao princípio de efemeridade:** o bucket S3 de state (`terraform/bootstrap/`) é infraestrutura intencionalmente persistente entre sessões — sem ele não há onde os ambientes futuros guardarem o `.tfstate`. Ver [`docs/adr/001-terraform-state-backend.md`](docs/adr/001-terraform-state-backend.md). Tem `prevent_destroy` ativo e não deve ser destruído no ciclo normal de `destroy` de cada sessão.
+- **Feito até aqui:** Fase 0 commitada e enviada; bootstrap do backend remoto e do usuário operacional escrito em `terraform/bootstrap/` (bucket S3 versionado/criptografado/sem acesso público com lock nativo do S3, mais `cloudlab-operator` + `PowerUserAccess`), `terraform fmt`/`validate`/`plan` executados com sucesso (9 recursos a criar); ADR 001, ADR 002 e runbooks `bootstrap-remote-backend.md` e `aws-account-bootstrap.md` criados
+- **Próximos passos:** rodar o `terraform apply` do bootstrap a partir do AWS CloudShell da conta nova (`docs/runbooks/aws-account-bootstrap.md`); configurar profile local `cloudlab`; migrar o state do bootstrap para o bucket (`-migrate-state`); iniciar o módulo próprio de VPC (subnets públicas/privadas, 1 NAT)
