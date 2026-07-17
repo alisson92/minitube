@@ -92,7 +92,11 @@ Cada fase tem um critério de conclusão explícito. Não avançar de fase sem f
 
 > Atualizar ao final de cada sessão (data + o que mudou + próximos passos).
 
-- **Fase atual:** 0 — Documentação
-- **Infraestrutura de pé:** nenhuma
-- **Feito até aqui:** definição da arquitetura alvo, das fases e das convenções; base documental criada (este arquivo + motivação + README)
-- **Próximos passos:** commitar a fase 0; iniciar a fase 1 pelo bootstrap do backend remoto do Terraform
+- **Fase atual:** 1 — Fundação Terraform (em andamento)
+- **Infraestrutura de pé:** bucket de state `minitube-tfstate-479213212405` (versionado, criptografado AES256, sem acesso público, `prevent_destroy` ativo) e usuário IAM `cloudlab-operator` (policy `PowerUserAccess`), ambos criados e verificados na conta AWS `479213212405`.
+- **Conta AWS:** a conta antiga (`455162168775`, usuário `lab-operator`) foi abandonada por não ser rastreável (origem/administrador desconhecidos). Nova conta dedicada com e-mail `alisson.cloudlab@gmail.com`, para uso em múltiplos projetos pessoais de laboratório, não só o MiniTube. Decisão registrada em [`docs/adr/002-aws-account-and-iam-bootstrap.md`](docs/adr/002-aws-account-and-iam-bootstrap.md).
+- **Módulos de bootstrap separados:** `terraform/bootstrap/` (bucket S3, uso diário liso com `cloudlab-operator`, local) e `terraform/bootstrap-iam/` (usuário/policy/access key, só roda com sessão root/CloudShell — `PowerUserAccess` exclui IAM de propósito, então `cloudlab-operator` não consegue nem ler o próprio usuário). Separação feita via `terraform state mv` depois que a primeira tentativa (tudo num state só) travou o `plan` do operador. Ver ADR 002.
+- **Exceção registrada ao princípio de efemeridade:** o bucket S3 de state e o usuário `cloudlab-operator` são infraestrutura intencionalmente persistente entre sessões. Ver ADR 001 e ADR 002.
+- **Profile local:** `AWS_PROFILE=cloudlab` configurado e validado (`aws sts get-caller-identity`), autenticando como `cloudlab-operator`. `terraform/bootstrap/` local já conectado ao backend remoto (`terraform init` + `plan` limpo, "No changes").
+- **Feito até aqui:** Fase 0 commitada e enviada; conta AWS nova criada e bootstrapada (bucket de state + operador IAM) via AWS CloudShell; ADR 001, ADR 002 e runbooks (`bootstrap-remote-backend.md`, `aws-account-bootstrap.md`) atualizados para refletir o fluxo real (dois módulos de bootstrap, não um).
+- **Próximos passos:** commit e push desta etapa; iniciar o módulo próprio de VPC (subnets públicas/privadas, 1 NAT) em `terraform/envs/lab/`, usando o backend S3 já existente com uma `key` própria (`envs/lab/terraform.tfstate`)

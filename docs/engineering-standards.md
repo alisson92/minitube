@@ -19,6 +19,10 @@
 
 > Por serem documentação, o `README.md` e o `CLAUDE.md` também têm conteúdo em português do Brasil. Isso é ajustável por projeto (ex.: README em inglês em um repositório de portfólio público).
 
+> **Atenção — ambiguidade comum:** `description` de variáveis/outputs (Terraform), comentários dentro de manifests Kubernetes/Helm e qualquer comentário embutido em arquivo de código (`.tf`, `.yaml`, `.sh`, `.py` etc.) contam como **código**, não como "conteúdo de `docs/`" — mesmo que sejam texto explicativo em prosa. Ficam em **inglês**, sempre, independentemente de onde o arquivo mora no repositório. Só o conteúdo de arquivos dentro de `docs/` (e README/CLAUDE.md, pela exceção acima) fica em português.
+
+> **Comentários de código:** curtos, diretos, uma linha sempre que possível. Só explicam o que não é óbvio pelo código (o "porquê", não o "o quê"). Sem parágrafos, sem repetir o que já está documentado em `docs/adr/` ou `docs/runbooks/` — linkar em vez de reexplicar.
+
 ## 3. Estratégia de branches
 
 Adota-se **trunk-based development** com branches de curta duração — o modelo padrão da comunidade para fluxos de CI/CD e GitOps:
