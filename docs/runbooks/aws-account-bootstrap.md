@@ -13,32 +13,42 @@
 
 No console AWS, clicar no ícone do CloudShell (topo da página). A sessão herda as credenciais temporárias do login root — nenhuma access key de root é criada.
 
-## Passo 3 — Rodar o bootstrap dentro do CloudShell
-
-O repositório é privado — autenticar o `gh` uma vez (device flow, sem precisar de chave SSH):
+## Passo 3 — Clonar o repositório
 
 ```bash
-gh auth login   # escolher GitHub.com → HTTPS → login via navegador
+gh auth login   # necessário se o repositório estiver privado (device flow, sem chave SSH)
 gh repo clone alisson92/minitube
-cd minitube/terraform/bootstrap
-git checkout feat/terraform-bootstrap
-terraform init
-terraform plan       # revisar: bucket de state + usuário cloudlab-operator + policy + access key
-terraform apply       # confirmar manualmente (yes)
+cd minitube
+git checkout feat/terraform-bootstrap   # ou main, se já mergeado
 ```
 
-## Passo 4 — Recuperar as credenciais do operador
+## Passo 4 — Aplicar `bootstrap-iam` (usuário operacional)
 
-Ainda no CloudShell:
+Cria o `cloudlab-operator` — precisa rodar com a sessão root/CloudShell, é o único jeito de criar a primeira identidade da conta:
 
 ```bash
+cd terraform/bootstrap-iam
+terraform init
+terraform plan       # revisar: usuário + policy PowerUserAccess + access key
+terraform apply       # confirmar manualmente (yes)
 terraform output -raw operator_access_key_id
 terraform output -raw operator_secret_access_key
 ```
 
 Copiar os dois valores para um gerenciador de senhas. Não colar em chat, issue ou qualquer lugar não seguro.
 
-## Passo 5 — Configurar o profile local
+## Passo 5 — Aplicar `bootstrap` (bucket de state)
+
+Ainda no CloudShell, com a mesma sessão root (o `cloudlab-operator` ainda não tem o bucket para si mesmo usar depois):
+
+```bash
+cd ../bootstrap
+terraform init
+terraform plan       # revisar: bucket S3 versionado/criptografado/sem acesso público
+terraform apply       # confirmar manualmente (yes)
+```
+
+## Passo 6 — Configurar o profile local
 
 Na sua máquina local (não no CloudShell):
 
@@ -51,10 +61,17 @@ aws configure --profile cloudlab
 
 Usar `AWS_PROFILE=cloudlab` (ou `--profile cloudlab`) em todos os comandos Terraform/AWS CLI do projeto daqui em diante.
 
-## Passo 6 — Migrar o state do bootstrap
+## Passo 7 — Conectar o Terraform local ao backend remoto
 
-Com `AWS_PROFILE=cloudlab`, seguir o [runbook de migração de backend](bootstrap-remote-backend.md) a partir do Passo 2 (adicionar `backend.tf` e rodar `terraform init -migrate-state`).
+Em `terraform/bootstrap/` local (o `backend.tf` já aponta pro bucket criado no passo 5):
+
+```bash
+AWS_PROFILE=cloudlab terraform init
+AWS_PROFILE=cloudlab terraform plan   # deve dar "No changes"
+```
+
+`terraform/bootstrap-iam/` **não** roda localmente com `cloudlab-operator` — ver regra permanente abaixo.
 
 ## Regra permanente
 
-Depois deste bootstrap, **root e CloudShell só voltam a ser usados para mudanças de IAM** (novo usuário, nova policy). Todo o resto do projeto — VPC, EKS, CloudFront, DNS — roda com `cloudlab-operator`, local, sem console.
+`terraform/bootstrap-iam/` só pode ser planejado/aplicado com sessão root/CloudShell — a `PowerUserAccess` do `cloudlab-operator` exclui IAM de propósito, então ele nem consegue ler o próprio usuário. Qualquer mudança futura ali (nova policy, novo usuário) repete os passos 2-4. Todo o resto do projeto — bucket de state, VPC, EKS, CloudFront, DNS — roda com `cloudlab-operator`, local, sem console.

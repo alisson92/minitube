@@ -1,7 +1,13 @@
-variable "operator_username" {
-  description = "IAM username for the daily-use Terraform operator across all personal lab projects in this account"
-  type        = string
-  default     = "cloudlab-operator"
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      project        = var.project
+      managed-by     = "terraform"
+      terraform-path = "terraform/bootstrap-iam"
+    }
+  }
 }
 
 resource "aws_iam_user" "operator" {
