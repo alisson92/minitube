@@ -11,7 +11,13 @@ variable "aws_region" {
 }
 
 variable "operator_username" {
-  description = "IAM username for the daily-use Terraform operator across all personal lab projects in this account"
+  description = "Name of the IAM Identity Center permission set for the daily-use Terraform operator across all personal lab projects in this account"
   type        = string
   default     = "cloudlab-operator"
+}
+
+variable "operator_sso_username" {
+  description = "IAM Identity Center username of the daily-use Terraform operator, created manually via the console before this module is applied"
+  type        = string
+  default     = "alisson.cloudlab@gmail.com"
 }
