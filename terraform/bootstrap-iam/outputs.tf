@@ -1,10 +1,9 @@
-output "operator_access_key_id" {
-  description = "Access key ID for the daily-use Terraform operator"
-  value       = aws_iam_access_key.operator.id
+output "permission_set_arn" {
+  description = "ARN of the IAM Identity Center permission set for the daily-use Terraform operator"
+  value       = aws_ssoadmin_permission_set.operator.arn
 }
 
-output "operator_secret_access_key" {
-  description = "Secret access key for the daily-use Terraform operator"
-  value       = aws_iam_access_key.operator.secret
-  sensitive   = true
+output "sso_instance_arn" {
+  description = "ARN of the IAM Identity Center instance used by this account"
+  value       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
 }
