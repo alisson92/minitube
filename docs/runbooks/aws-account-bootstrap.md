@@ -13,6 +13,15 @@
 
 No console AWS, clicar no ícone do CloudShell (topo da página). A sessão herda as credenciais temporárias do login root — nenhuma access key de root é criada.
 
+⚠️ **Configurar cache de provider compartilhado antes de qualquer `terraform init`.** O CloudShell tem apenas 1 GB de storage persistente em `$HOME` (limite da AWS, não do projeto). Os passos 6 e 7 rodam `terraform init` em dois diretórios diferentes (`bootstrap-iam/` e `bootstrap/`) na mesma sessão — sem cache compartilhado, cada um baixa sua própria cópia do provider `hashicorp/aws` (~500 MB) e o disco enche, causando `Error: Failed to install provider ... no space left on device`. Evite isso configurando:
+
+```bash
+mkdir -p ~/.terraform.d/plugin-cache
+export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+```
+
+antes do primeiro `terraform init` da sessão. Assim o provider é baixado uma única vez e reaproveitado por todos os módulos.
+
 ## Passo 3 — Clonar o repositório
 
 ```bash
@@ -79,6 +88,8 @@ sso_start_url = https://<subdomínio-do-passo-4>.awsapps.com/start
 sso_region = us-east-1
 sso_registration_scopes = sso:account:access
 ```
+
+⚠️ **Antes de testar, remova qualquer access key estática antiga de `~/.aws/credentials` para o profile `cloudlab`** (do `aws configure` usado antes desta migração). O AWS CLI/SDK dá prioridade a `aws_access_key_id`/`aws_secret_access_key` de `~/.aws/credentials` sobre o `sso_session` de `~/.aws/config` quando os dois existem para o mesmo profile — se a chave antiga (já destruída no passo 6) ficar para trás, o resultado é `InvalidClientTokenId: The security token included in the request is invalid`, mesmo com o SSO configurado certo.
 
 Depois:
 
