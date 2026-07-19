@@ -45,7 +45,8 @@ minitube/
 │   ├── 000-motivation.md   # por que o projeto existe
 │   ├── engineering-standards.md  # padrões reutilizáveis (git, gitops, iac) — importado pelo CLAUDE.md
 │   ├── adr/                # decisões de arquitetura (curtas, numeradas)
-│   └── runbooks/           # subir ambiente, derrubar ambiente, dia do jogo
+│   ├── runbooks/           # subir ambiente, derrubar ambiente, dia do jogo
+│   └── phases/             # retrospecto de cada fase concluída, insumo da documentação final do projeto
 ├── terraform/
 │   ├── bootstrap/          # backend remoto: bucket S3 de estado (versionado, com lock)
 │   ├── bootstrap-iam/      # roles IAM, permission set do operador, budget alert (persistente, admin-only)
