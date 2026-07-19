@@ -48,7 +48,8 @@ minitube/
 │   └── runbooks/           # subir ambiente, derrubar ambiente, dia do jogo
 ├── terraform/
 │   ├── bootstrap/          # backend remoto: bucket S3 de estado (versionado, com lock)
-│   └── envs/lab/           # VPC, EKS, S3 de vídeo, CloudFront, DNS, budget alert
+│   ├── bootstrap-iam/      # roles IAM, permission set do operador, budget alert (persistente, admin-only)
+│   └── envs/lab/           # VPC, EKS, S3 de vídeo, CloudFront, DNS
 ├── gitops/
 │   ├── plataforma/         # argocd, kube-prometheus-stack, loki (Helm/Kustomize)
 │   └── app/                # api e transcoder (Kustomize)
