@@ -22,3 +22,8 @@ output "availability_zones" {
   description = "Availability zones used by this environment"
   value       = local.azs
 }
+
+output "smoke_test_instance_profile_name" {
+  description = "Instance profile name for ephemeral network validation instances (see scripts/validate-network.sh)"
+  value       = data.aws_iam_instance_profile.network_smoke_test.name
+}
