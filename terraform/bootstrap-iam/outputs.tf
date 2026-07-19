@@ -22,3 +22,13 @@ output "eks_node_role_name" {
   description = "Name of the IAM role EKS worker nodes assume, referenced by name from envs/lab via a data source"
   value       = aws_iam_role.eks_node.name
 }
+
+output "budget_name" {
+  description = "Name of the account-wide AWS Budgets cost alert"
+  value       = aws_budgets_budget.account_cost.name
+}
+
+output "budget_arn" {
+  description = "ARN of the account-wide AWS Budgets cost alert"
+  value       = aws_budgets_budget.account_cost.arn
+}

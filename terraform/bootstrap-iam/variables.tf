@@ -27,3 +27,15 @@ variable "create_eks_service_linked_roles" {
   type        = bool
   default     = true
 }
+
+variable "budget_notification_email" {
+  description = "Email address that receives account-wide AWS Budgets alert notifications"
+  type        = string
+  default     = "alisson.cloudlab@gmail.com"
+}
+
+variable "budget_limit_usd" {
+  description = "Monthly account-wide cost limit, in USD, that triggers the budget alert notifications"
+  type        = string
+  default     = "10"
+}
