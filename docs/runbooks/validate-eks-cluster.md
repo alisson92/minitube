@@ -49,15 +49,35 @@ aws iam get-role --role-name minitube-eks-node-role --profile cloudlab
 
 ## Aplicar o cluster e rodar o teste
 
+> ⚠️ **Tudo em `terraform/envs/lab/` é efêmero por design.** Se a VPC da sessão anterior já foi destruída (fluxo normal — ver `docs/runbooks/validate-vpc-network.md`), este `apply` recria a VPC **do zero**, junto com o cluster EKS, o node group e o OIDC provider — não é incremental sobre nada que já exista. Ao final do teste, **tudo isso é destruído de novo** (ver seção seguinte). O EKS cobra pelo control plane por hora, mesmo ocioso, então não deixe o cluster de pé além do tempo de teste.
+
 ```bash
 cd terraform/envs/lab
-AWS_PROFILE=cloudlab terraform plan     # revisar: cluster + node group + OIDC provider + tags novas nas subnets
+AWS_PROFILE=cloudlab terraform plan     # revisar: VPC (se recriando) + cluster + node group + OIDC provider + tags nas subnets
 AWS_PROFILE=cloudlab terraform apply
 
 AWS_PROFILE=cloudlab ./scripts/validate-eks.sh
 ```
 
 Dependências no seu ambiente: `aws` CLI, `jq`, `terraform`, `kubectl`.
+
+## Destruir tudo ao final do teste
+
+```bash
+cd terraform/envs/lab
+AWS_PROFILE=cloudlab terraform plan -destroy   # revisar: deve remover cluster, node group, OIDC provider, VPC — tudo
+AWS_PROFILE=cloudlab terraform destroy
+```
+
+`terraform/bootstrap-iam/` **não** é destruído — as roles do EKS, a role do smoke-test de rede e o permission set do operador ficam de pé entre sessões porque não geram custo. Confirmar que não sobrou nada cobrável na conta:
+
+```bash
+aws eks list-clusters --profile cloudlab --region us-east-1
+aws ec2 describe-vpcs --profile cloudlab --region us-east-1 --filters "Name=tag:Name,Values=minitube-lab"
+aws ec2 describe-nat-gateways --profile cloudlab --region us-east-1 --filter "Name=state,Values=available"
+```
+
+Todos os três comandos devem retornar vazio antes de encerrar a sessão.
 
 ## Leitura esperada do output
 
