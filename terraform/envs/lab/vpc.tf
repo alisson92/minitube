@@ -4,7 +4,8 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  azs = slice(data.aws_availability_zones.available.names, 0, var.az_count)
+  azs          = slice(data.aws_availability_zones.available.names, 0, var.az_count)
+  cluster_name = "${var.project}-lab"
 }
 
 resource "aws_vpc" "lab" {
@@ -37,6 +38,8 @@ resource "aws_subnet" "public" {
     Name = "${var.project}-public-${local.azs[count.index]}"
     # Lets the AWS Load Balancer Controller (EKS phase) auto-discover this subnet for internet-facing ALBs.
     "kubernetes.io/role/elb" = "1"
+    # Required by EKS/the AWS Load Balancer Controller to associate this subnet with the cluster.
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 }
 
@@ -51,6 +54,8 @@ resource "aws_subnet" "private" {
     Name = "${var.project}-private-${local.azs[count.index]}"
     # Lets the AWS Load Balancer Controller (EKS phase) auto-discover this subnet for internal ALBs.
     "kubernetes.io/role/internal-elb" = "1"
+    # Required by EKS/the AWS Load Balancer Controller to associate this subnet with the cluster.
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 }
 
