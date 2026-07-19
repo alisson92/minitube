@@ -78,7 +78,7 @@ if [[ "$budget_json" != "null" ]]; then
       local subs
       subs=$(aws budgets describe-subscribers-for-notification \
         --account-id "$account_id" --budget-name "$budget_name" \
-        --notification comparison-operator=GREATER_THAN,notification-type=ACTUAL,threshold=100,threshold-type=PERCENTAGE \
+        --notification ComparisonOperator=GREATER_THAN,NotificationType=ACTUAL,Threshold=100,ThresholdType=PERCENTAGE \
         --query "Subscribers[].Address" --output text)
       grep -qi "$expected_email" <<< "$subs"
     }
