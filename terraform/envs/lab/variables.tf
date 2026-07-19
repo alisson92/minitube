@@ -43,3 +43,33 @@ variable "private_subnet_cidrs" {
     error_message = "private_subnet_cidrs must have exactly az_count entries."
   }
 }
+
+variable "eks_cluster_version" {
+  description = "Kubernetes version for the EKS cluster. Check currently supported versions (aws eks describe-cluster-versions) before each apply — EKS drops standard support for old versions over time."
+  type        = string
+  default     = "1.31"
+}
+
+variable "eks_node_instance_types" {
+  description = "EC2 instance types for the spot node group, in order of preference"
+  type        = list(string)
+  default     = ["t3.medium"]
+}
+
+variable "eks_node_desired_size" {
+  description = "Desired number of worker nodes in the spot node group"
+  type        = number
+  default     = 2
+}
+
+variable "eks_node_min_size" {
+  description = "Minimum number of worker nodes in the spot node group"
+  type        = number
+  default     = 1
+}
+
+variable "eks_node_max_size" {
+  description = "Maximum number of worker nodes in the spot node group"
+  type        = number
+  default     = 3
+}

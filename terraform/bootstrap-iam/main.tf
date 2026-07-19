@@ -89,25 +89,111 @@ resource "aws_iam_instance_profile" "network_smoke_test" {
   role = aws_iam_role.network_smoke_test.name
 }
 
+# AWS creates these automatically the first time a resource of the given type
+# is provisioned in the account. Toggle to false once confirmed present (see
+# docs/runbooks/validate-eks-cluster.md) — re-running with true after that
+# point fails with "has been taken in this account".
+resource "aws_iam_service_linked_role" "eks_cluster" {
+  count            = var.create_eks_service_linked_roles ? 1 : 0
+  aws_service_name = "eks.amazonaws.com"
+}
+
+resource "aws_iam_service_linked_role" "eks_nodegroup" {
+  count            = var.create_eks_service_linked_roles ? 1 : 0
+  aws_service_name = "eks-nodegroup.amazonaws.com"
+}
+
+# Control plane role: EKS assumes this to manage cluster-owned AWS resources
+# (ENIs, security groups) on the operator's behalf.
+resource "aws_iam_role" "eks_cluster" {
+  name = "${var.project}-eks-cluster-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "eks.amazonaws.com"
+      }
+      Action = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
+  role       = aws_iam_role.eks_cluster.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+
+# Worker node role: assumed by each EC2 instance in the managed node group.
+resource "aws_iam_role" "eks_node" {
+  name = "${var.project}-eks-node-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks_node_worker" {
+  role       = aws_iam_role.eks_node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_node_cni" {
+  role       = aws_iam_role.eks_node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_node_ecr" {
+  role       = aws_iam_role.eks_node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly"
+}
+
 # PowerUserAccess has no IAM allowlist at all (unlike the AWS-documented
-# behavior of some other policies) — grant back only what's needed to launch
-# an instance with this specific role, nothing else in IAM.
-resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_smoke_test_role" {
+# behavior of some other policies) — grant back only what's needed for each
+# resource the operator must pass a role for, nothing else in IAM.
+#
+# IAM Identity Center allows exactly one inline policy per permission set, so
+# every statement the operator needs lives here as a single resource — this
+# is edited (Sid added), never duplicated, as new roles are introduced.
+resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
   instance_arn       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
   permission_set_arn = aws_ssoadmin_permission_set.operator.arn
 
   inline_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "iam:GetInstanceProfile",
-        "iam:PassRole",
-      ]
-      Resource = [
-        aws_iam_role.network_smoke_test.arn,
-        aws_iam_instance_profile.network_smoke_test.arn,
-      ]
-    }]
+    Statement = [
+      {
+        Sid    = "PassSmokeTestRole"
+        Effect = "Allow"
+        Action = [
+          "iam:GetInstanceProfile",
+          "iam:PassRole",
+        ]
+        Resource = [
+          aws_iam_role.network_smoke_test.arn,
+          aws_iam_instance_profile.network_smoke_test.arn,
+        ]
+      },
+      {
+        Sid    = "PassEksRoles"
+        Effect = "Allow"
+        Action = [
+          "iam:GetRole",
+          "iam:PassRole",
+        ]
+        Resource = [
+          aws_iam_role.eks_cluster.arn,
+          aws_iam_role.eks_node.arn,
+        ]
+      },
+    ]
   })
 }

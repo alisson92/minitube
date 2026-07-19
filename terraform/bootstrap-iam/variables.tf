@@ -21,3 +21,9 @@ variable "operator_sso_username" {
   type        = string
   default     = "alisson.cloudlab@gmail.com"
 }
+
+variable "create_eks_service_linked_roles" {
+  description = "Whether to create the AWSServiceRoleForAmazonEKS and AWSServiceRoleForAmazonEKSNodegroup service-linked roles. Set to false once confirmed present in the account (see docs/runbooks/validate-eks-cluster.md) — re-applying with true after that point fails."
+  type        = bool
+  default     = true
+}
