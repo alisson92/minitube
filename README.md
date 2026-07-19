@@ -27,7 +27,7 @@ O ambiente sobe (`terraform apply`), é testado e observado, e **é destruído a
 terraform/
   bootstrap/       # bucket S3 de state (versionado, criptografado, lock nativo)
   bootstrap-iam/   # usuário operacional cloudlab-operator (admin-only, via CloudShell)
-  envs/lab/        # VPC, EKS, S3, CloudFront, DNS (a criar)
+  envs/lab/        # VPC, EKS, S3, CloudFront, DNS (próximo: módulo de VPC)
 gitops/      # manifests observados pelo ArgoCD (plataforma e app)
 app/         # API e transcoder + Dockerfiles
 load/        # cenários k6
@@ -40,4 +40,4 @@ O bootstrap de uma conta AWS nova (conta dedicada, usuário operacional via Terr
 
 ## Status
 
-🚧 **Fase 1 — Fundação Terraform, em andamento.** Backend remoto de state e usuário operacional (`cloudlab-operator`) já criados e validados. Próximo passo: módulo de VPC. O roteiro completo das fases, as convenções e o estado vivo do projeto estão em [`CLAUDE.md`](CLAUDE.md).
+🚧 **Fase 1 — Fundação Terraform, em andamento.** Backend remoto de state criado e validado. O operador `cloudlab-operator` migrou de usuário IAM estático para um Permission Set do IAM Identity Center (SSO) — nenhuma credencial estática de operador humano resta na conta. Próximo passo: módulo de VPC. O roteiro completo das fases, as convenções e o estado vivo do projeto estão em [`CLAUDE.md`](CLAUDE.md).
