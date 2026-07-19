@@ -62,9 +62,10 @@ resource "aws_ssoadmin_account_assignment" "operator" {
 
 # Instance role for ephemeral EC2 smoke-test instances (SSM Session Manager
 # access, no SSH/bastion). Lives here, not in envs/lab, because PowerUserAccess
-# denies IAM write actions — the daily operator can only read and pass this
-# role, not create it. Reusable across future validation scripts (EKS, etc.),
-# not just the VPC network test.
+# denies ALL IAM actions to the daily operator, including reads (verified:
+# iam:GetRole/GetInstanceProfile/PassRole all return AccessDenied). The inline
+# policy below grants back just enough to use this one role. Reusable across
+# future validation scripts (EKS, etc.), not just the VPC network test.
 resource "aws_iam_role" "network_smoke_test" {
   name = "${var.project}-network-smoke-test"
 
@@ -86,4 +87,27 @@ resource "aws_iam_role_policy_attachment" "network_smoke_test_ssm" {
 resource "aws_iam_instance_profile" "network_smoke_test" {
   name = aws_iam_role.network_smoke_test.name
   role = aws_iam_role.network_smoke_test.name
+}
+
+# PowerUserAccess has no IAM allowlist at all (unlike the AWS-documented
+# behavior of some other policies) — grant back only what's needed to launch
+# an instance with this specific role, nothing else in IAM.
+resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_smoke_test_role" {
+  instance_arn       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
+  permission_set_arn = aws_ssoadmin_permission_set.operator.arn
+
+  inline_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "iam:GetInstanceProfile",
+        "iam:PassRole",
+      ]
+      Resource = [
+        aws_iam_role.network_smoke_test.arn,
+        aws_iam_instance_profile.network_smoke_test.arn,
+      ]
+    }]
+  })
 }
