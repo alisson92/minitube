@@ -103,3 +103,11 @@ Consequências práticas:
 
 - Validações automatizadas (fmt, lint, validate, testes) rodam **antes do merge** — o humano revisa intenção, a máquina revisa forma.
 - Tudo que for executado mais de duas vezes manualmente é candidato a automação (script versionado ou pipeline).
+
+## 11. Validação funcional pós-apply
+
+`terraform apply` sem erro e um recurso com os atributos certos provam que ele **existe como esperado** — não provam que ele **funciona**. Todo entregável de infraestrutura relevante (rede, cluster, CDN, etc.) ganha um teste funcional que exercita o comportamento real, não só uma leitura de atributos via `describe-*`.
+
+- O teste vive como script versionado (`scripts/validate-*.sh`, próximo ao módulo Terraform que ele valida) + um runbook em `docs/runbooks/validate-*.md` explicando o quê, por quê e como ler o resultado.
+- Testes são **efêmeros e se autolimpam**: qualquer recurso criado só para o teste (instância, carga de trabalho) é destruído ao final, mesmo em caso de falha — scripts que criam recursos usam `trap` de cleanup (`EXIT`) sem exceção.
+- O critério de conclusão de cada fase do projeto (ver `CLAUDE.md`) inclui a validação funcional correspondente, não só o `apply` limpo.
