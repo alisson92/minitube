@@ -18,6 +18,8 @@ A role (`minitube-app-irsa-role`) vive então em `envs/lab`, junto do OIDC provi
 
 `iam:ListAttachedRolePolicies` só foi descoberta como necessária num segundo teste real: o *refresh* de um `aws_iam_role` sempre verifica policies gerenciadas anexadas, mesmo quando só existe uma inline (como aqui) — o mesmo padrão de lacuna do item 5 (OIDC provider), só que na própria role da app.
 
+Um terceiro round, desta vez no `terraform destroy`: `iam:ListInstanceProfilesForRole` também precisou ser adicionada — o provider AWS verifica instance profiles anexados antes de deletar a role, mesmo que esta role nunca tenha tido um. Mesma classe de lacuna (uma checagem do provider que não é óbvia a partir do `assume_role_policy`/`aws_iam_role_policy` do recurso), só que exposta no ciclo de destruição em vez de no `plan`.
+
 ### 2. Uma única role IRSA compartilhada por API e transcoder
 
 A API só grava em `raw/`; o transcoder lê `raw/` e grava em `hls/` — mesmo bucket, mesma forma de policy. Duas roles quase idênticas não trariam isolamento real adicional neste estágio. A trust policy aceita os dois service accounts (`system:serviceaccount:minitube-app:api` e `:transcoder`) via `StringLike` na condition do `sub`.

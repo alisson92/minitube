@@ -218,6 +218,11 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
           "iam:ListAttachedRolePolicies",
           "iam:TagRole",
           "iam:UntagRole",
+          # aws_iam_role deletion also checks for attached instance profiles,
+          # even though this role never has one — same class of gap as
+          # ListAttachedRolePolicies above, surfaced this time on `destroy`
+          # instead of `plan`.
+          "iam:ListInstanceProfilesForRole",
         ]
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-app-*"
       },
