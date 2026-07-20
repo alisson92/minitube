@@ -203,6 +203,25 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
         ]
       },
       {
+        # CreateNodegroup also validates that the eks-nodegroup service-linked
+        # role already exists by calling iam:GetRole on it directly -- a
+        # separate check from PassEksRoles above (that one only covers the
+        # cluster/node roles themselves, not this AWS-managed SLR). Read-only,
+        # scoped to the two EKS service-linked roles this project's
+        # aws_iam_service_linked_role resources manage (eks.tf/main.tf),
+        # regardless of whether create_eks_service_linked_roles is currently
+        # true or false for this session.
+        Sid    = "ReadEksServiceLinkedRoles"
+        Effect = "Allow"
+        Action = [
+          "iam:GetRole",
+        ]
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/eks-nodegroup.amazonaws.com/AWSServiceRoleForAmazonEKSNodegroup",
+        ]
+      },
+      {
         # Lets the daily operator create/manage the app's IRSA role directly
         # in envs/lab, where it must live (its trust policy is bound to the
         # cluster's OIDC provider, which is recreated every session). Scoped
