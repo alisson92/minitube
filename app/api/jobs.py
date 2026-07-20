@@ -62,7 +62,12 @@ def create_transcode_job(video_id: str, raw_key: str, hls_prefix: str) -> str:
 def get_job_status(video_id: str) -> str:
     name = _job_name(video_id)
     try:
-        job = _batch.read_namespaced_job_status(name=name, namespace=settings.job_namespace)
+        # read_namespaced_job, not read_namespaced_job_status: the latter
+        # hits the /status subresource, which needs a separate RBAC grant
+        # ("jobs/status", not just "jobs") that gitops/app/role.yaml doesn't
+        # have. read_namespaced_job returns the same .status field and only
+        # needs "get" on jobs, which the Role already covers.
+        job = _batch.read_namespaced_job(name=name, namespace=settings.job_namespace)
     except client.ApiException as exc:
         if exc.status == 404:
             return "not_found"

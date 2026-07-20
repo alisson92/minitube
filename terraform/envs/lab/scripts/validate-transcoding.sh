@@ -85,6 +85,8 @@ echo "video_id=$video_id"
 echo "Waiting for the transcode Job to finish (up to ${JOB_TIMEOUT_SECONDS}s)..."
 elapsed=0
 status="running"
+consecutive_errors=0
+MAX_CONSECUTIVE_ERRORS=3
 while [[ "$status" != "succeeded" && "$status" != "failed" ]]; do
   if (( elapsed >= JOB_TIMEOUT_SECONDS )); then
     echo "FAIL: transcode job did not finish within ${JOB_TIMEOUT_SECONDS}s" >&2
@@ -93,11 +95,26 @@ while [[ "$status" != "succeeded" && "$status" != "failed" ]]; do
   fi
   sleep 5
   elapsed=$((elapsed + 5))
-  # A transient curl/port-forward hiccup shouldn't kill the whole script (set
-  # -e + pipefail would otherwise abort silently mid-loop) -- treat it as
-  # "still running" and let the next iteration retry.
-  polled_status=$(curl -s "http://127.0.0.1:${LOCAL_PORT}/videos/${video_id}" 2>/dev/null | jq -r '.status // empty' 2>/dev/null) || true
-  status="${polled_status:-running}"
+  # A single transient curl/port-forward hiccup shouldn't kill the whole
+  # script (set -e + pipefail would otherwise abort silently mid-loop) -- but
+  # a real, repeated API error (e.g. 500 from a bug) shouldn't be silently
+  # treated as "still running" until the timeout either. GET /videos returns
+  # {"video_id":...,"status":...} on success; anything else (including a
+  # FastAPI {"detail":...} error body) fails the jq lookup for .status.
+  raw_response=$(curl -s "http://127.0.0.1:${LOCAL_PORT}/videos/${video_id}" 2>/dev/null) || raw_response=""
+  polled_status=$(jq -r '.status // empty' <<< "$raw_response" 2>/dev/null) || polled_status=""
+  if [[ -z "$polled_status" ]]; then
+    consecutive_errors=$((consecutive_errors + 1))
+    echo "  [$(printf '%3d' "$elapsed")s] no valid status in response (attempt ${consecutive_errors}/${MAX_CONSECUTIVE_ERRORS}): ${raw_response:-<empty>}"
+    if (( consecutive_errors >= MAX_CONSECUTIVE_ERRORS )); then
+      echo "FAIL: API returned an unparseable/error response ${MAX_CONSECUTIVE_ERRORS} times in a row" >&2
+      overall=1
+      break
+    fi
+    continue
+  fi
+  consecutive_errors=0
+  status="$polled_status"
   echo "  [$(printf '%3d' "$elapsed")s] status=$status"
 done
 
