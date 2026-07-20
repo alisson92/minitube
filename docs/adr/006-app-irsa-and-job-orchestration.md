@@ -36,7 +36,13 @@ Descoberta em teste real, não antecipada no desenho original: `aws_iam_openid_c
 
 Corrigido com uma nova `Statement` (`ManageEksOidcProvider`) na mesma policy inline, cobrindo `Create`/`Delete`/`Get`/`Tag`/`Untag`/`ListTags` para `OpenIDConnectProvider`. Como o ARN do provider embute um ID de cluster atribuído pela AWS (não previsível por nome, ao contrário da role da app), o escopo usa `Resource` por padrão de conta/região/serviço (`oidc-provider/oidc.eks.<region>.amazonaws.com/id/*`), não um ARN exato.
 
-### 6. `kubectl apply -k gitops/app/` manual nesta fase
+### 6. Access entry explícita para o operador ter acesso ao cluster via kubectl
+
+Outra descoberta em teste real: `bootstrap_cluster_creator_admin_permissions = true` (ADR 004) só concede admin a quem de fato chamou `CreateCluster` — que, na Fase 1, foi a sessão CloudShell/root, não o `cloudlab-operator`. Ao tentar `kubectl apply` localmente pela primeira vez, o operador nem conseguia autenticar no cluster (a mensagem de erro do lado do servidor era genérica, "the server has asked for the client to provide credentials" — sintoma de a identidade não ser reconhecida como principal válido, não um erro de RBAC).
+
+Corrigido com um `aws_eks_access_entry` + `aws_eks_access_policy_association` (`AmazonEKSClusterAdminPolicy`, escopo `cluster`) explícitos em `envs/lab/eks.tf`, resolvendo o ARN da role subjacente de quem roda o `apply` via `data.aws_iam_session_context` (a ARN de uma sessão assumida tem um sufixo de nome de sessão que não bate com o ARN da role em si). Como `eks:CreateAccessEntry`/`AssociateAccessPolicy` não são ações de IAM, `PowerUserAccess` já permite isso ao operador diário — sem CloudShell. O efeito prático: quem quer que rode `terraform apply` em `envs/lab` (normalmente o operador, a partir de agora) sempre ganha acesso ao cluster, independente de quem o criou.
+
+### 7. `kubectl apply -k gitops/app/` manual nesta fase
 
 Os manifests já vivem em `gitops/app/` (Kustomize), prontos para o ArgoCD assumir na Fase 3, mas são aplicados manualmente por enquanto — mesma exceção temporária já usada nos smoke tests de VPC/EKS da Fase 1. Nenhum `kubectl apply` continuará manual além da Fase 3.
 
@@ -49,6 +55,7 @@ Os manifests já vivem em `gitops/app/` (Kustomize), prontos para o ArgoCD assum
 ## Consequências
 
 - `terraform/bootstrap-iam/main.tf` ganha as `Statement`s `ManageAppIrsaRoles` e `ManageEksOidcProvider` — qualquer role futura com prefixo `minitube-app-*`, e o próprio OIDC provider do cluster, podem ser gerenciados por `envs/lab` sem tocar `bootstrap-iam` de novo. Essa segunda concessão fecha uma lacuna que existia desde a Fase 1 (o OIDC provider só havia sido testado via CloudShell) e só foi exposta ao rodar `envs/lab` pela primeira vez com o profile do operador diário depois que o recurso já existia no state.
+- `terraform/envs/lab/eks.tf` ganha `aws_eks_access_entry.operator` + `aws_eks_access_policy_association.operator_admin` — o acesso `kubectl` ao cluster deixa de depender de quem o criou originalmente.
 - `terraform/envs/lab/` ganha `s3.tf` (bucket de vídeo) e `iam-app.tf` (role + policy IRSA), e destrói os dois junto com o resto a cada `terraform destroy` — nenhuma infraestrutura de app fica de pé fora do ciclo efêmero.
 - `terraform/bootstrap/` ganha `ecr.tf` — os dois repositórios e as imagens neles persistem entre sessões.
 - A validação funcional pós-apply ganha `terraform/envs/lab/scripts/validate-transcoding.sh` e o runbook [`docs/runbooks/validate-transcoding.md`](../runbooks/validate-transcoding.md).

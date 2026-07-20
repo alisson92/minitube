@@ -43,13 +43,15 @@ docker build -t "${account_id}.dkr.ecr.us-east-1.amazonaws.com/minitube-transcod
 docker push "${account_id}.dkr.ecr.us-east-1.amazonaws.com/minitube-transcoder:v0.1.0"
 ```
 
-### 4. VPC + EKS + bucket S3 + IRSA role (operador diário, sem CloudShell)
+### 4. VPC + EKS + bucket S3 + IRSA role + acesso ao cluster (operador diário, sem CloudShell)
 
 ```bash
 cd terraform/envs/lab
-AWS_PROFILE=cloudlab terraform plan     # revisar: VPC+EKS (se recriando) + bucket S3 + IRSA role + policy
+AWS_PROFILE=cloudlab terraform plan     # revisar: VPC+EKS (se recriando) + bucket S3 + IRSA role + policy + access entry
 AWS_PROFILE=cloudlab terraform apply
 ```
+
+Inclui `aws_eks_access_entry`/`aws_eks_access_policy_association` (cluster-admin para quem aplica este módulo) — sem isso, `kubectl` falha na autenticação mesmo com IAM correto, se o cluster tiver sido criado por uma identidade diferente da que está rodando `kubectl` agora (ver [ADR 006](../adr/006-app-irsa-and-job-orchestration.md), item 6).
 
 ### 5. Deploy manual dos manifests
 

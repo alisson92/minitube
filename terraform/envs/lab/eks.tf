@@ -2,8 +2,14 @@
 #
 # authentication_mode = "API" uses IAM access entries instead of the legacy
 # aws-auth ConfigMap — the current AWS-recommended mode for new clusters.
-# bootstrap_cluster_creator_admin_permissions grants the applying identity
-# (cloudlab-operator) cluster-admin automatically, with no manual kubectl step.
+# bootstrap_cluster_creator_admin_permissions grants cluster-admin to
+# whichever identity actually calls CreateCluster — which, in practice, has
+# sometimes been a CloudShell/root session rather than cloudlab-operator (the
+# daily operator identity envs/lab is meant to be fully usable from). The
+# explicit access entry below grants cluster-admin to whoever *applies this
+# Terraform module* regardless of who originally created the cluster, so
+# kubectl works for the daily operator even on a session that didn't create
+# the cluster itself.
 resource "aws_eks_cluster" "lab" {
   name     = local.cluster_name
   role_arn = data.aws_iam_role.eks_cluster.arn
@@ -73,5 +79,33 @@ resource "aws_iam_openid_connect_provider" "lab" {
 
   tags = {
     Name = local.cluster_name
+  }
+}
+
+# Resolves the underlying IAM role ARN of the identity running `terraform
+# apply` (data.aws_caller_identity.current.arn is an assumed-role session ARN
+# with a session-name suffix that access entries won't match).
+data "aws_iam_session_context" "current" {
+  arn = data.aws_caller_identity.current.arn
+}
+
+# Explicit access entry: cluster-admin for whoever applies this module, not
+# just whoever happened to create the cluster (see comment on the cluster
+# resource above). eks:CreateAccessEntry/AssociateAccessPolicy aren't IAM
+# actions, so PowerUserAccess already allows this for the daily operator —
+# no CloudShell needed.
+resource "aws_eks_access_entry" "operator" {
+  cluster_name  = aws_eks_cluster.lab.name
+  principal_arn = data.aws_iam_session_context.current.issuer_arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "operator_admin" {
+  cluster_name  = aws_eks_cluster.lab.name
+  principal_arn = data.aws_iam_session_context.current.issuer_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
   }
 }
