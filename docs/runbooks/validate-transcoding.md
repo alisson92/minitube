@@ -12,12 +12,12 @@ Este runbook documenta `terraform/envs/lab/scripts/validate-transcoding.sh`, que
 
 ### 1. Grant de IAM ao operador (uma única vez, via CloudShell)
 
-A IRSA role da app precisa que o operador diário ganhe permissão para gerenciar roles com prefixo `minitube-app-*` — ver decisão em [ADR 006](../adr/006-app-irsa-and-job-orchestration.md). Sem isso, `terraform plan`/`apply` em `envs/lab` falha ao tentar criar `aws_iam_role.app`.
+A IRSA role da app precisa que o operador diário ganhe permissão para gerenciar roles com prefixo `minitube-app-*`, e também para ler/gerenciar o OIDC provider do cluster (`aws_iam_openid_connect_provider.lab`, existente desde a Fase 1, mas nunca antes planejado pelo profile do operador) — ver decisão em [ADR 006](../adr/006-app-irsa-and-job-orchestration.md). Sem isso, `terraform plan`/`apply` em `envs/lab` falha: ao tentar criar `aws_iam_role.app` (primeira execução) ou, em qualquer execução seguinte, ao fazer o *refresh* do OIDC provider já existente no state (`AccessDenied` em `iam:GetOpenIDConnectProvider`).
 
 ```bash
 # Sessão root/CloudShell, uma única vez
 cd terraform/bootstrap-iam
-terraform plan     # revisar: 1 statement novo na inline policy do operador
+terraform plan     # revisar: 2 statements novas na inline policy do operador (ManageAppIrsaRoles, ManageEksOidcProvider)
 terraform apply
 ```
 

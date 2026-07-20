@@ -28,7 +28,13 @@ A API cria um `batch/v1 Job` por vídeo recebido (`kubernetes` client Python, in
 
 ECR não é bloqueado por `PowerUserAccess` — só IAM/Organizations são. Os dois repositórios (`minitube-api`, `minitube-transcoder`) são aplicáveis pelo operador diário via SSO, sem CloudShell, e persistem entre sessões (rebuildar imagens a cada teste seria desperdício). `image_tag_mutability = "IMMUTABLE"` reforça a convenção do projeto de nunca usar `latest`.
 
-### 5. `kubectl apply -k gitops/app/` manual nesta fase
+### 5. Concessão adicional: leitura/gestão do OIDC provider pelo operador
+
+Descoberta em teste real, não antecipada no desenho original: `aws_iam_openid_connect_provider.lab` existe em `envs/lab` desde a Fase 1, mas todo `plan`/`apply` que o tocou até então rodou via CloudShell/root (inclusive a validação do EKS). Na primeira vez que o operador diário rodou `terraform plan` em `envs/lab` contra um state onde esse recurso **já existia**, o *refresh* falhou com `AccessDenied` em `iam:GetOpenIDConnectProvider` — uma ação nunca concedida. `terraform plan` sempre atualiza (`refresh`) todo recurso já presente no state antes de calcular o diff, não só os que estão mudando; para um recurso IAM, isso exige uma permissão de leitura explícita, não coberta pela concessão do item 1 (que só cobre `iam:*Role*`, não `iam:*OpenIDConnectProvider*`).
+
+Corrigido com uma nova `Statement` (`ManageEksOidcProvider`) na mesma policy inline, cobrindo `Create`/`Delete`/`Get`/`Tag`/`Untag`/`ListTags` para `OpenIDConnectProvider`. Como o ARN do provider embute um ID de cluster atribuído pela AWS (não previsível por nome, ao contrário da role da app), o escopo usa `Resource` por padrão de conta/região/serviço (`oidc-provider/oidc.eks.<region>.amazonaws.com/id/*`), não um ARN exato.
+
+### 6. `kubectl apply -k gitops/app/` manual nesta fase
 
 Os manifests já vivem em `gitops/app/` (Kustomize), prontos para o ArgoCD assumir na Fase 3, mas são aplicados manualmente por enquanto — mesma exceção temporária já usada nos smoke tests de VPC/EKS da Fase 1. Nenhum `kubectl apply` continuará manual além da Fase 3.
 
@@ -40,7 +46,7 @@ Os manifests já vivem em `gitops/app/` (Kustomize), prontos para o ArgoCD assum
 
 ## Consequências
 
-- `terraform/bootstrap-iam/main.tf` ganha a `Statement` `ManageAppIrsaRoles` — qualquer role futura com prefixo `minitube-app-*` pode ser gerenciada por `envs/lab` sem tocar `bootstrap-iam` de novo.
+- `terraform/bootstrap-iam/main.tf` ganha as `Statement`s `ManageAppIrsaRoles` e `ManageEksOidcProvider` — qualquer role futura com prefixo `minitube-app-*`, e o próprio OIDC provider do cluster, podem ser gerenciados por `envs/lab` sem tocar `bootstrap-iam` de novo. Essa segunda concessão fecha uma lacuna que existia desde a Fase 1 (o OIDC provider só havia sido testado via CloudShell) e só foi exposta ao rodar `envs/lab` pela primeira vez com o profile do operador diário depois que o recurso já existia no state.
 - `terraform/envs/lab/` ganha `s3.tf` (bucket de vídeo) e `iam-app.tf` (role + policy IRSA), e destrói os dois junto com o resto a cada `terraform destroy` — nenhuma infraestrutura de app fica de pé fora do ciclo efêmero.
 - `terraform/bootstrap/` ganha `ecr.tf` — os dois repositórios e as imagens neles persistem entre sessões.
 - A validação funcional pós-apply ganha `terraform/envs/lab/scripts/validate-transcoding.sh` e o runbook [`docs/runbooks/validate-transcoding.md`](../runbooks/validate-transcoding.md).
