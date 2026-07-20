@@ -57,6 +57,11 @@ applicationSet:
       cpu: 200m
       memory: 128Mi
 
-global:
-  additionalLabels:
-    app.kubernetes.io/part-of: minitube
+# No global.additionalLabels here on purpose: the chart already sets
+# app.kubernetes.io/part-of=argocd on argocd-cm/argocd-secret, and ArgoCD's
+# own settings-manager informer filters on that exact label to find its
+# config. Overriding it (e.g. to "minitube") silently breaks argocd-server
+# and the application-controller at startup ("configmap argocd-cm not
+# found", CrashLoopBackOff) even though the configmap really exists --
+# discovered the hard way during Phase 3 validation. The "part-of: minitube"
+# grouping already lives on the Namespace itself (kubernetes_namespace_v1.argocd).

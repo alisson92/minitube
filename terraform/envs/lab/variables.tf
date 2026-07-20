@@ -92,6 +92,12 @@ variable "argocd_chart_version" {
   default     = "10.1.4"
 }
 
+variable "argocd_gitops_revision" {
+  description = "Git branch/tag the root Applications track in gitops/app and gitops/plataforma. Defaults to main; override with -var only to validate a feature branch before it's merged (e.g. gitops/plataforma/ doesn't exist on main until this branch merges)."
+  type        = string
+  default     = "main"
+}
+
 variable "argocd_apps_chart_version" {
   description = "Pinned version of the argocd-apps Helm chart (https://artifacthub.io/packages/helm/argo/argocd-apps), used to declare the root Applications/AppProject via Terraform values instead of a manually-applied Application manifest."
   type        = string

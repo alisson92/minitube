@@ -2,7 +2,7 @@ locals {
   argocd_namespace   = "argocd"
   platform_namespace = "minitube-platform"
   gitops_repo_url    = "git@github.com:alisson92/minitube.git"
-  gitops_revision    = "main"
+  gitops_revision    = var.argocd_gitops_revision
 }
 
 resource "kubernetes_namespace_v1" "argocd" {
