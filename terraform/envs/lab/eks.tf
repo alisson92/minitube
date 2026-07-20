@@ -82,27 +82,25 @@ resource "aws_iam_openid_connect_provider" "lab" {
   }
 }
 
-# Resolves the underlying IAM role ARN of the identity running `terraform
-# apply` (data.aws_caller_identity.current.arn is an assumed-role session ARN
-# with a session-name suffix that access entries won't match).
-data "aws_iam_session_context" "current" {
-  arn = data.aws_caller_identity.current.arn
-}
-
-# Explicit access entry: cluster-admin for whoever applies this module, not
-# just whoever happened to create the cluster (see comment on the cluster
-# resource above). eks:CreateAccessEntry/AssociateAccessPolicy aren't IAM
-# actions, so PowerUserAccess already allows this for the daily operator —
-# no CloudShell needed.
+# Explicit access entry: cluster-admin for the daily operator, regardless of
+# who created the cluster (see comment on the cluster resource above).
+# var.operator_role_arn is hardcoded rather than resolved dynamically via
+# `data "aws_iam_session_context"` on purpose: that data source itself calls
+# iam:GetRole against the SSO-managed role, an IAM read PowerUserAccess
+# denies and that falls outside the minitube-app-* grant — resolving it would
+# mean chasing yet another IAM permission for a role Terraform doesn't
+# manage. A fixed ARN needs no new grant at all (eks:CreateAccessEntry/
+# AssociateAccessPolicy aren't IAM actions, so PowerUserAccess already
+# allows this part).
 resource "aws_eks_access_entry" "operator" {
   cluster_name  = aws_eks_cluster.lab.name
-  principal_arn = data.aws_iam_session_context.current.issuer_arn
+  principal_arn = var.operator_role_arn
   type          = "STANDARD"
 }
 
 resource "aws_eks_access_policy_association" "operator_admin" {
   cluster_name  = aws_eks_cluster.lab.name
-  principal_arn = data.aws_iam_session_context.current.issuer_arn
+  principal_arn = var.operator_role_arn
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
 
   access_scope {

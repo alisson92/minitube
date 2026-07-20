@@ -51,7 +51,9 @@ AWS_PROFILE=cloudlab terraform plan     # revisar: VPC+EKS (se recriando) + buck
 AWS_PROFILE=cloudlab terraform apply
 ```
 
-Inclui `aws_eks_access_entry`/`aws_eks_access_policy_association` (cluster-admin para quem aplica este módulo) — sem isso, `kubectl` falha na autenticação mesmo com IAM correto, se o cluster tiver sido criado por uma identidade diferente da que está rodando `kubectl` agora (ver [ADR 006](../adr/006-app-irsa-and-job-orchestration.md), item 6).
+Inclui `aws_eks_access_entry`/`aws_eks_access_policy_association` (cluster-admin para `var.operator_role_arn`) — sem isso, `kubectl` falha na autenticação mesmo com IAM correto, se o cluster tiver sido criado por uma identidade diferente da que está rodando `kubectl` agora (ver [ADR 006](../adr/006-app-irsa-and-job-orchestration.md), item 6).
+
+⚠️ Se o permission set `cloudlab-operator` for recriado (evento raro), `var.operator_role_arn` em `terraform/envs/lab/variables.tf` precisa ser atualizado — obtenha o novo ARN via `aws iam get-role --role-name AWSReservedSSO_cloudlab-operator_<hash> --query Role.Arn --output text` (CloudShell/root, só leitura).
 
 ### 5. Deploy manual dos manifests
 
