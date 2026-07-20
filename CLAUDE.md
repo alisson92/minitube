@@ -48,13 +48,15 @@ minitube/
 │   ├── runbooks/           # subir ambiente, derrubar ambiente, dia do jogo
 │   └── phases/             # retrospecto de cada fase concluída, insumo da documentação final do projeto
 ├── terraform/
-│   ├── bootstrap/          # backend remoto: bucket S3 de estado (versionado, com lock)
+│   ├── bootstrap/          # backend remoto: bucket S3 de estado (versionado, com lock); repositórios ECR
 │   ├── bootstrap-iam/      # roles IAM, permission set do operador, budget alert (persistente, admin-only)
-│   └── envs/lab/           # VPC, EKS, S3 de vídeo, CloudFront, DNS
+│   └── envs/lab/           # VPC, EKS, S3 de vídeo, IAM da app (IRSA), CloudFront, DNS
 ├── gitops/
 │   ├── plataforma/         # argocd, kube-prometheus-stack, loki (Helm/Kustomize)
-│   └── app/                # api e transcoder (Kustomize)
-├── app/                    # código-fonte + Dockerfiles
+│   └── app/                # api e transcoder (Kustomize, aplicado manualmente até a Fase 3)
+├── app/
+│   ├── api/                # FastAPI: upload + dispara Job de transcodificação
+│   └── transcoder/         # FFmpeg → HLS, roda como Job Kubernetes
 └── load/                   # cenários k6 ("ondas de torcida")
 ```
 

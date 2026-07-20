@@ -1,0 +1,10 @@
+# Values match terraform outputs s3_video_bucket_name / ecr_*_repository_url.
+# No secrets here — bucket name and image references only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: minitube-app
+data:
+  s3_bucket: minitube-video-479213212405
+  transcoder_image: 479213212405.dkr.ecr.us-east-1.amazonaws.com/minitube-transcoder:v0.1.0

@@ -25,13 +25,13 @@ O ambiente sobe (`terraform apply`), é testado e observado, e **é destruído a
 
 ```
 terraform/
-  bootstrap/       # bucket S3 de state (versionado, criptografado, lock nativo)
+  bootstrap/       # bucket S3 de state (versionado, criptografado, lock nativo); repositórios ECR
   bootstrap-iam/   # usuário operacional cloudlab-operator (admin-only, via CloudShell)
-  envs/lab/        # VPC, EKS, S3, CloudFront, DNS (próximo: módulo de VPC)
-gitops/      # manifests observados pelo ArgoCD (plataforma e app)
-app/         # API e transcoder + Dockerfiles
+  envs/lab/        # VPC, EKS, S3 de vídeo, IAM da app, CloudFront, DNS
+gitops/      # manifests da app (Kustomize) — ArgoCD assume a partir da Fase 3
+app/         # API (FastAPI) e transcoder (FFmpeg) + Dockerfiles
 load/        # cenários k6
-docs/        # motivação, ADRs e runbooks
+docs/        # motivação, ADRs, runbooks e retrospectos por fase
 ```
 
 ## Como começar
@@ -40,4 +40,4 @@ O bootstrap de uma conta AWS nova (conta dedicada, usuário operacional via Terr
 
 ## Status
 
-🚧 **Fase 1 — Fundação Terraform, em andamento.** Backend remoto de state criado e validado. O operador `cloudlab-operator` migrou de usuário IAM estático para um Permission Set do IAM Identity Center (SSO) — nenhuma credencial estática de operador humano resta na conta. Próximo passo: módulo de VPC. O roteiro completo das fases, as convenções e o estado vivo do projeto estão em [`CLAUDE.md`](CLAUDE.md).
+🚧 **Fase 2 — Aplicação, em andamento.** Fase 1 (Fundação Terraform) encerrada: backend remoto, VPC, EKS com node group spot e budget alert, todos validados funcionalmente (ver [`docs/phases/001-fundacao-terraform.md`](docs/phases/001-fundacao-terraform.md)). Agora: API mínima (FastAPI) + transcoder (FFmpeg) rodando como Job no EKS efêmero, gravando segmentos HLS no S3. O roteiro completo das fases, as convenções e o estado vivo do projeto estão em [`CLAUDE.md`](CLAUDE.md).

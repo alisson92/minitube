@@ -47,3 +47,18 @@ output "eks_oidc_provider_arn" {
   description = "ARN of the IAM OIDC provider for the cluster, consumed by future IRSA roles"
   value       = aws_iam_openid_connect_provider.lab.arn
 }
+
+output "eks_oidc_provider_url" {
+  description = "Issuer URL of the cluster's OIDC provider, without the https:// prefix, used in IRSA trust policy condition keys"
+  value       = local.oidc_provider_url
+}
+
+output "s3_video_bucket_name" {
+  description = "Name of the S3 bucket storing raw uploads and HLS output"
+  value       = aws_s3_bucket.video.id
+}
+
+output "app_irsa_role_arn" {
+  description = "ARN of the shared IRSA role for the app's API and transcoder service accounts"
+  value       = aws_iam_role.app.arn
+}

@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: minitube-app
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: minitube
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+        app.kubernetes.io/part-of: minitube
+    spec:
+      serviceAccountName: api
+      containers:
+        - name: api
+          # Immutable tag (ECR image_tag_mutability = IMMUTABLE) — never :latest.
+          image: 479213212405.dkr.ecr.us-east-1.amazonaws.com/minitube-api:v0.1.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: api-config
+                  key: s3_bucket
+            - name: TRANSCODER_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: api-config
+                  key: transcoder_image
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20
