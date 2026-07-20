@@ -55,15 +55,15 @@ Inclui `aws_eks_access_entry`/`aws_eks_access_policy_association` (cluster-admin
 
 ⚠️ Se o permission set `cloudlab-operator` for recriado (evento raro), `var.operator_role_arn` em `terraform/envs/lab/variables.tf` precisa ser atualizado — obtenha o novo ARN via `aws iam get-role --role-name AWSReservedSSO_cloudlab-operator_<hash> --query Role.Arn --output text` (CloudShell/root, só leitura).
 
-### 5. Deploy manual dos manifests
+### 5. ArgoCD sincroniza gitops/app/ automaticamente
 
-> ⚠️ Manual só nesta fase — o ArgoCD assume a reconciliação de `gitops/app/` na Fase 3. Ver ADR 006.
+A partir da Fase 3, `gitops/app/` não é mais aplicado manualmente — o ArgoCD (instalado via `terraform/envs/lab/argocd.tf`, junto do restante do `apply` acima) sincroniza a partir do Git. Confirmar que a Application está `Synced`+`Healthy` antes de seguir para o teste de transcodificação:
 
 ```bash
-aws eks update-kubeconfig --region us-east-1 --name minitube-lab --profile cloudlab
-kubectl apply -k gitops/app/
-kubectl -n minitube-app wait deployment/api --for=condition=Available --timeout=120s
+AWS_PROFILE=cloudlab ./scripts/validate-argocd.sh
 ```
+
+Ver [`docs/runbooks/validate-argocd-gitops.md`](./validate-argocd-gitops.md) e [ADR 007](../adr/007-argocd-gitops-bootstrap.md). Nenhum `kubectl apply -k gitops/app/` deve ser rodado a partir desta fase.
 
 ## Executar o teste
 

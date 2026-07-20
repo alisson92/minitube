@@ -52,8 +52,8 @@ minitube/
 │   ├── bootstrap-iam/      # roles IAM, permission set do operador, budget alert (persistente, admin-only)
 │   └── envs/lab/           # VPC, EKS, S3 de vídeo, IAM da app (IRSA), CloudFront, DNS
 ├── gitops/
-│   ├── plataforma/         # argocd, kube-prometheus-stack, loki (Helm/Kustomize)
-│   └── app/                # api e transcoder (Kustomize, aplicado manualmente até a Fase 3)
+│   ├── plataforma/         # kube-prometheus-stack, loki (Helm/Kustomize, Fase 5) — ArgoCD em si é instalado via terraform/envs/lab/
+│   └── app/                # api e transcoder (Kustomize, reconciliado pelo ArgoCD)
 ├── app/
 │   ├── api/                # FastAPI: upload + dispara Job de transcodificação
 │   └── transcoder/         # FFmpeg → HLS, roda como Job Kubernetes

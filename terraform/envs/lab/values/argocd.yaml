@@ -1,0 +1,62 @@
+# Values for the argo-cd chart (https://artifacthub.io/packages/helm/argo/argo-cd),
+# version pinned via var.argocd_chart_version in terraform/envs/lab/argocd.tf.
+# Sized for a 2x t3.medium spot node group already hosting the api/transcoder
+# workloads — every component left enabled gets explicit resources, since the
+# chart ships all of them with `resources: {}` (no limits) by default.
+
+# No SSO configured yet — Dex would just sit idle.
+dex:
+  enabled: false
+
+# No notification channel (Slack/email/webhook) configured yet.
+notifications:
+  enabled: false
+
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+repoServer:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+server:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+applicationSet:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+global:
+  additionalLabels:
+    app.kubernetes.io/part-of: minitube

@@ -188,6 +188,14 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
         Action = [
           "iam:GetRole",
           "iam:PassRole",
+          # CreateNodegroup checks the node role's attached managed policies
+          # as part of validation before creating the ASG -- discovered on a
+          # real apply once the daily operator (not CloudShell/root) became
+          # the one calling CreateNodegroup. Same class of gap as
+          # ListAttachedRolePolicies under ManageAppIrsaRoles below, just
+          # surfaced on a role this policy only ever granted GetRole/PassRole
+          # for before.
+          "iam:ListAttachedRolePolicies",
         ]
         Resource = [
           aws_iam_role.eks_cluster.arn,

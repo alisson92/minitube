@@ -62,3 +62,8 @@ output "app_irsa_role_arn" {
   description = "ARN of the shared IRSA role for the app's API and transcoder service accounts"
   value       = aws_iam_role.app.arn
 }
+
+output "argocd_namespace" {
+  description = "Namespace where ArgoCD is installed"
+  value       = kubernetes_namespace_v1.argocd.metadata[0].name
+}
