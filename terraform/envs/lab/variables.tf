@@ -73,3 +73,9 @@ variable "eks_node_max_size" {
   type        = number
   default     = 3
 }
+
+variable "operator_role_arn" {
+  description = "IAM role ARN backing the daily operator's IAM Identity Center permission set, granted cluster-admin via an EKS access entry (aws_eks_access_entry.operator). Only changes if the cloudlab-operator permission set is recreated — find it via `aws iam get-role --role-name AWSReservedSSO_cloudlab-operator_<hash> --query Role.Arn --output text` (CloudShell/root, read-only)."
+  type        = string
+  default     = "arn:aws:iam::479213212405:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_cloudlab-operator_05e61e8d7c72bcd9"
+}

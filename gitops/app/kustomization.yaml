@@ -1,0 +1,15 @@
+# Applied manually via `kubectl apply -k gitops/app/` in this phase.
+# ArgoCD takes over reconciliation of this directory in Phase 3 — see
+# docs/adr/006-app-irsa-and-job-orchestration.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - serviceaccount-api.yaml
+  - serviceaccount-transcoder.yaml
+  - role.yaml
+  - rolebinding.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml

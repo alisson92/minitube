@@ -194,6 +194,60 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
           aws_iam_role.eks_node.arn,
         ]
       },
+      {
+        # Lets the daily operator create/manage the app's IRSA role directly
+        # in envs/lab, where it must live (its trust policy is bound to the
+        # cluster's OIDC provider, which is recreated every session). Scoped
+        # by name prefix, not by a specific ARN, since the role itself is
+        # ephemeral and doesn't exist yet when this statement is written.
+        # See docs/adr/006-app-irsa-and-job-orchestration.md.
+        Sid    = "ManageAppIrsaRoles"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateRole",
+          "iam:DeleteRole",
+          "iam:GetRole",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:GetRolePolicy",
+          "iam:ListRolePolicies",
+          # Refreshing an aws_iam_role also checks managed-policy attachments,
+          # even when none are attached (as here — only an inline policy is
+          # used). Missing this action surfaced as a 403 on the operator's
+          # first plan against an already-created role.
+          "iam:ListAttachedRolePolicies",
+          "iam:TagRole",
+          "iam:UntagRole",
+          # aws_iam_role deletion also checks for attached instance profiles,
+          # even though this role never has one — same class of gap as
+          # ListAttachedRolePolicies above, surfaced this time on `destroy`
+          # instead of `plan`.
+          "iam:ListInstanceProfilesForRole",
+        ]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-app-*"
+      },
+      {
+        # aws_iam_openid_connect_provider.lab (envs/lab/eks.tf) has existed
+        # since Phase 1, but every plan/apply that touched it ran via
+        # CloudShell/root — this gap was never exposed until the daily
+        # operator tried to plan envs/lab against a state where the provider
+        # already exists. Any `terraform plan` refreshes resources already in
+        # state, which for an IAM resource requires an explicit read grant
+        # like the ones above, not just create/destroy. The provider's ARN
+        # embeds a per-cluster ID assigned by AWS (not a predictable name),
+        # so it's scoped by account/region/service instead of by exact ARN.
+        Sid    = "ManageEksOidcProvider"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateOpenIDConnectProvider",
+          "iam:DeleteOpenIDConnectProvider",
+          "iam:GetOpenIDConnectProvider",
+          "iam:TagOpenIDConnectProvider",
+          "iam:UntagOpenIDConnectProvider",
+          "iam:ListOpenIDConnectProviderTags",
+        ]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.eks.${var.aws_region}.amazonaws.com/id/*"
+      },
     ]
   })
 }
