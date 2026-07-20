@@ -4,4 +4,4 @@ metadata:
   name: minitube-app
   labels:
     app.kubernetes.io/part-of: minitube
-    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/managed-by: argocd

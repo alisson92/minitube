@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: api
     app.kubernetes.io/part-of: minitube
-    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/managed-by: argocd
 spec:
   replicas: 1
   selector:

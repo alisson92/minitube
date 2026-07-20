@@ -79,3 +79,27 @@ variable "operator_role_arn" {
   type        = string
   default     = "arn:aws:iam::479213212405:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_cloudlab-operator_05e61e8d7c72bcd9"
 }
+
+variable "argocd_repo_ssh_private_key" {
+  description = "SSH private key (OpenSSH format) for the dedicated, read-only GitHub deploy key ArgoCD uses to clone this repository. Sourced from TF_VAR_argocd_repo_ssh_private_key at apply time — never committed, never given a default. See docs/runbooks/validate-argocd-gitops.md for how to generate and register the key."
+  type        = string
+  sensitive   = true
+}
+
+variable "argocd_chart_version" {
+  description = "Pinned version of the argo-cd Helm chart (https://artifacthub.io/packages/helm/argo/argo-cd). Check for a newer stable release before bumping."
+  type        = string
+  default     = "10.1.4"
+}
+
+variable "argocd_gitops_revision" {
+  description = "Git branch/tag the root Applications track in gitops/app and gitops/plataforma. Defaults to main; override with -var only to validate a feature branch before it's merged (e.g. gitops/plataforma/ doesn't exist on main until this branch merges)."
+  type        = string
+  default     = "main"
+}
+
+variable "argocd_apps_chart_version" {
+  description = "Pinned version of the argocd-apps Helm chart (https://artifacthub.io/packages/helm/argo/argocd-apps), used to declare the root Applications/AppProject via Terraform values instead of a manually-applied Application manifest."
+  type        = string
+  default     = "2.0.5"
+}

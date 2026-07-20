@@ -188,10 +188,37 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
         Action = [
           "iam:GetRole",
           "iam:PassRole",
+          # CreateNodegroup checks the node role's attached managed policies
+          # as part of validation before creating the ASG -- discovered on a
+          # real apply once the daily operator (not CloudShell/root) became
+          # the one calling CreateNodegroup. Same class of gap as
+          # ListAttachedRolePolicies under ManageAppIrsaRoles below, just
+          # surfaced on a role this policy only ever granted GetRole/PassRole
+          # for before.
+          "iam:ListAttachedRolePolicies",
         ]
         Resource = [
           aws_iam_role.eks_cluster.arn,
           aws_iam_role.eks_node.arn,
+        ]
+      },
+      {
+        # CreateNodegroup also validates that the eks-nodegroup service-linked
+        # role already exists by calling iam:GetRole on it directly -- a
+        # separate check from PassEksRoles above (that one only covers the
+        # cluster/node roles themselves, not this AWS-managed SLR). Read-only,
+        # scoped to the two EKS service-linked roles this project's
+        # aws_iam_service_linked_role resources manage (eks.tf/main.tf),
+        # regardless of whether create_eks_service_linked_roles is currently
+        # true or false for this session.
+        Sid    = "ReadEksServiceLinkedRoles"
+        Effect = "Allow"
+        Action = [
+          "iam:GetRole",
+        ]
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/eks-nodegroup.amazonaws.com/AWSServiceRoleForAmazonEKSNodegroup",
         ]
       },
       {
