@@ -48,7 +48,7 @@ Como nas fases anteriores, nenhum destes apareceu antes de um `terraform apply`/
 
 - Critério de conclusão cumprido: nenhum `kubectl apply` manual — `gitops/app/` e `gitops/plataforma/` são reconciliados pelo ArgoCD a partir do Git, confirmado por teste funcional real (incluindo prova de self-heal).
 - `terraform/bootstrap-iam/` ganhou 2 novas concessões de IAM (persistentes, sem custo); `terraform/envs/lab/` (VPC, EKS, S3, IRSA, ArgoCD) confirmado destruído ao final da sessão.
-- Nota de segurança: o repositório GitHub do projeto foi tornado **público** nesta sessão (decisão do operador, por conveniência de `git pull` no CloudShell) — ver atualização registrada no ADR 007, alternativa "Tornar o repositório público".
+- Visibilidade do repositório: brevemente tornado público nesta sessão (conveniência de `git pull` no CloudShell) e revertido para **privado** ainda na mesma sessão — o projeto fica privado durante todo o desenvolvimento e vira público deliberadamente ao final, para divulgação em portfólio/LinkedIn. Ver ADR 007.
 - PR desta fase: branch `feat/argocd-bootstrap` *(atualizar o link do PR quando aberto)*.
 
 ## Próxima fase
