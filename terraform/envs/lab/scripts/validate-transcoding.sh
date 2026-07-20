@@ -93,7 +93,12 @@ while [[ "$status" != "succeeded" && "$status" != "failed" ]]; do
   fi
   sleep 5
   elapsed=$((elapsed + 5))
-  status=$(curl -sf "http://127.0.0.1:${LOCAL_PORT}/videos/${video_id}" | jq -r '.status')
+  # A transient curl/port-forward hiccup shouldn't kill the whole script (set
+  # -e + pipefail would otherwise abort silently mid-loop) -- treat it as
+  # "still running" and let the next iteration retry.
+  polled_status=$(curl -s "http://127.0.0.1:${LOCAL_PORT}/videos/${video_id}" 2>/dev/null | jq -r '.status // empty' 2>/dev/null) || true
+  status="${polled_status:-running}"
+  echo "  [$(printf '%3d' "$elapsed")s] status=$status"
 done
 
 run_check "transcode job succeeded (status=$status)" [ "$status" = "succeeded" ] || {
