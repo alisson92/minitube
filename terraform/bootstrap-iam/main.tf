@@ -211,6 +211,11 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
           "iam:DeleteRolePolicy",
           "iam:GetRolePolicy",
           "iam:ListRolePolicies",
+          # Refreshing an aws_iam_role also checks managed-policy attachments,
+          # even when none are attached (as here — only an inline policy is
+          # used). Missing this action surfaced as a 403 on the operator's
+          # first plan against an already-created role.
+          "iam:ListAttachedRolePolicies",
           "iam:TagRole",
           "iam:UntagRole",
         ]
