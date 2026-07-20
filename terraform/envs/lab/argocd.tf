@@ -13,6 +13,16 @@ resource "kubernetes_namespace_v1" "argocd" {
       "app.kubernetes.io/managed-by" = "terraform"
     }
   }
+
+  # Neither resource is referenced by this one, so Terraform has no implicit
+  # ordering between them -- without this, a `destroy` can (and did, once)
+  # tear down the operator's EKS access entry before this namespace and
+  # everything that depends on it (the repo secret, both helm_releases),
+  # revoking kubectl access mid-destroy and leaving the k8s-side resources
+  # stuck ("cannot delete resource secrets"). This depends_on forces the
+  # correct order both ways: access granted before k8s resources are
+  # created, and k8s resources torn down before access is revoked.
+  depends_on = [aws_eks_access_entry.operator, aws_eks_access_policy_association.operator_admin]
 }
 
 # Repository credentials in the format ArgoCD expects for a Secret-based repo
