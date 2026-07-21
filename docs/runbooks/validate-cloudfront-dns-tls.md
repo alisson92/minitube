@@ -104,6 +104,28 @@ AWS_PROFILE=cloudlab terraform plan -destroy   # revisar: remove CloudFront, IRS
 AWS_PROFILE=cloudlab terraform destroy
 ```
 
+⚠️ **Risco conhecido (ADR 008, decisão 15): a ALB compartilhada pode ficar órfã.** As Applications do ArgoCD não têm o finalizer `resources-finalizer.argocd.argoproj.io`, então o `aws-load-balancer-controller` pode ser destruído (junto do node group) antes de conseguir deletar a ALB que provisionou — o `destroy` trava com `DependencyViolation` nas subnets/IGW. Se isso acontecer:
+
+```bash
+# 1. Deletar a ALB órfã manualmente
+aws elbv2 delete-load-balancer --load-balancer-arn "$(aws elbv2 describe-load-balancers --names minitube-app --query 'LoadBalancers[0].LoadBalancerArn' --output text)"
+
+# 2. Se o namespace argocd ficar preso em Terminating (finalizers do LBC no
+#    Ingress/TargetGroupBinding, sem controller vivo para removê-los):
+kubectl delete validatingwebhookconfigurations aws-load-balancer-webhook
+kubectl delete mutatingwebhookconfigurations aws-load-balancer-webhook
+kubectl patch ingress argocd-server -n argocd --type=merge -p '{"metadata":{"finalizers":[]}}'
+kubectl patch targetgroupbindings.elbv2.k8s.aws -n argocd --all --type=merge -p '{"metadata":{"finalizers":[]}}'
+
+# 3. Se a exclusão da VPC travar em DeleteVpc (security groups do LBC órfãs):
+aws ec2 describe-security-groups --filters "Name=group-name,Values=k8s-*" --query "SecurityGroups[].GroupId" --output text
+# para cada GroupId retornado:
+aws ec2 delete-security-group --group-id <id>
+
+# 4. Reaplicar o destroy normalmente
+AWS_PROFILE=cloudlab terraform destroy
+```
+
 `terraform/bootstrap/` (state, ECR, **agora também a zona Route 53 e o certificado ACM**) e `terraform/bootstrap-iam/` (roles, permission set, budget alert, **incluindo o novo grant `ManagePlatformIrsaRoles`**) **não** são destruídos — persistem entre sessões. Confirmar que não sobrou nada cobrável:
 
 ```bash
