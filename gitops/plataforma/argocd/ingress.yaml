@@ -1,0 +1,51 @@
+# Routes argocd.<domain> straight to the shared ALB -- no CloudFront in
+# front of it (ArgoCD is an internal operational tool, doesn't need edge
+# caching, and keeps the CloudFront distribution's dynamic behavior limited
+# to just /api/*). Shares the same IngressGroup as gitops/app/ingress.yaml
+# (group.name: minitube) so the aws-load-balancer-controller provisions a
+# single ALB for both, not two. See docs/adr/008-cloudfront-dns-tls.md.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: minitube
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: minitube
+    # Lower number = higher priority. This rule is host-specific, so it must
+    # be evaluated BEFORE gitops/app/ingress.yaml's catch-all (order 20) --
+    # otherwise the catch-all matches every request first, including this
+    # host, and ArgoCD becomes unreachable (discovered on the first real
+    # test).
+    alb.ingress.kubernetes.io/group.order: "10"
+    # Must match gitops/app/ingress.yaml exactly -- shared-ALB annotations
+    # need to agree across every member of the group. See
+    # terraform/envs/lab/cloudfront.tf's data "aws_lb" comment for why this
+    # is a fixed, predictable name rather than an auto-generated one.
+    alb.ingress.kubernetes.io/load-balancer-name: minitube-app
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # Persistent ACM wildcard cert from terraform/bootstrap/dns.tf -- safe to
+    # hardcode, same pattern as var.operator_role_arn. Re-fetch via
+    # `terraform output -raw acm_certificate_arn` (bootstrap/) if reissued.
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:us-east-1:479213212405:certificate/3aec10c8-c0e3-4376-bbc6-943f17d3298d"
+    # argocd-server speaks gRPC-Web/HTTP2 over plain HTTP internally when TLS
+    # is terminated at the ALB (server.insecure=true, see values/argocd.yaml).
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    external-dns.alpha.kubernetes.io/hostname: argocd.minitube.projetodevops.com.br
+spec:
+  ingressClassName: alb
+  rules:
+    - host: argocd.minitube.projetodevops.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80

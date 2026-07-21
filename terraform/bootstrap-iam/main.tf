@@ -275,6 +275,30 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
         ]
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.eks.${var.aws_region}.amazonaws.com/id/*"
       },
+      {
+        # Same rationale as ManageAppIrsaRoles above, for the 3 platform
+        # add-on IRSA roles (aws-load-balancer-controller, external-dns,
+        # cert-manager) created in envs/lab/iam-platform.tf. A separate name
+        # prefix (minitube-platform-* vs minitube-app-*) keeps the two grants
+        # independently auditable even though the actions are identical.
+        # See docs/adr/008-cloudfront-dns-tls.md.
+        Sid    = "ManagePlatformIrsaRoles"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateRole",
+          "iam:DeleteRole",
+          "iam:GetRole",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:GetRolePolicy",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies",
+          "iam:TagRole",
+          "iam:UntagRole",
+          "iam:ListInstanceProfilesForRole",
+        ]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-platform-*"
+      },
     ]
   })
 }

@@ -1,0 +1,34 @@
+# Static values for the external-dns chart
+# (https://github.com/kubernetes-sigs/external-dns/tree/master/charts/external-dns),
+# version pinned via var.external_dns_chart_version in
+# terraform/envs/lab/argocd.tf. serviceAccount.annotations (the IRSA role
+# ARN) is injected dynamically by that same Application via `helm.parameters`.
+provider:
+  name: aws
+
+# Only manages records under the delegated subdomain -- never touches
+# anything else that might exist in the account's other hosted zones.
+domainFilters:
+  - minitube.projetodevops.com.br
+
+# Distinguishes records this external-dns instance owns (via a TXT registry
+# record) from anything else in the zone, so it never adopts or deletes
+# records it didn't create itself.
+txtOwnerId: minitube-lab
+
+# "sync" (create+update+delete) rather than "upsert-only": the Ingress this
+# watches (gitops/app/ingress.yaml, gitops/plataforma/argocd/ingress.yaml) is
+# recreated every session along with the rest of envs/lab, so stale records
+# from a previous session's ALB must be cleaned up automatically.
+policy: sync
+
+sources:
+  - ingress
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi

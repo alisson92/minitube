@@ -15,3 +15,10 @@ variable "domain_name" {
   type        = string
   default     = "minitube.projetodevops.com.br"
 }
+
+variable "argocd_repo_ssh_private_key" {
+  description = "SSH private key (OpenSSH format) for the read-only GitHub deploy key ArgoCD uses to clone this repo. Only ever needs a real value on the one-time apply that (re)creates ssm.tf's aws_ssm_parameter -- its `lifecycle.ignore_changes` means Terraform never touches the stored value again after that, regardless of what this variable holds on later applies. Safe to leave at the default (empty) on every apply after the first. See docs/adr/008-cloudfront-dns-tls.md and docs/runbooks/validate-argocd-gitops.md."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
