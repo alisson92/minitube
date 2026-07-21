@@ -93,7 +93,17 @@ resource "helm_release" "argocd_apps" {
       minitube-platform = {
         namespace   = local.argocd_namespace
         description = "Platform components (kube-prometheus-stack/Loki in Phase 5). ArgoCD self-management is a future candidate, not implemented — see ADR 007."
-        sourceRepos = [local.gitops_repo_url]
+        # Each add-on's second source (its official Helm chart repo, Phase 4)
+        # must be explicitly allow-listed here too -- AppProject.sourceRepos
+        # restricts every source of every Application under this project, not
+        # just the Git one. Missing this causes InvalidSpecError ("repo ...
+        # is not permitted in project"), discovered on the first real sync.
+        sourceRepos = [
+          local.gitops_repo_url,
+          "https://aws.github.io/eks-charts",
+          "https://kubernetes-sigs.github.io/external-dns/",
+          "https://charts.jetstack.io",
+        ]
         destinations = [
           {
             namespace = local.platform_namespace
@@ -104,6 +114,14 @@ resource "helm_release" "argocd_apps" {
             # Ingress, Phase 4) targets the argocd namespace itself, not
             # minitube-platform.
             namespace = local.argocd_namespace
+            server    = "https://kubernetes.default.svc"
+          },
+          {
+            # The cert-manager chart's leader-election Role/RoleBinding are
+            # hardcoded by upstream to live in kube-system, regardless of
+            # where the rest of the chart is installed -- discovered on the
+            # first real sync ("namespace kube-system is not permitted").
+            namespace = "kube-system"
             server    = "https://kubernetes.default.svc"
           },
         ]
@@ -194,6 +212,17 @@ resource "helm_release" "argocd_apps" {
                 {
                   name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
                   value = aws_iam_role.aws_load_balancer_controller.arn
+                },
+                {
+                  # Without this, the controller falls back to discovering
+                  # the VPC via EC2 instance metadata (IMDS), which fails
+                  # ("context deadline exceeded") on this cluster's spot
+                  # nodes -- discovered on the first real sync. The VPC ID
+                  # changes every session (envs/lab is recreated from
+                  # scratch), so it's injected here rather than hardcoded in
+                  # gitops/plataforma/aws-load-balancer-controller/values.yaml.
+                  name  = "vpcId"
+                  value = aws_vpc.lab.id
                 },
               ]
             }
