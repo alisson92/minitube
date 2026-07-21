@@ -15,7 +15,12 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/group.name: minitube
-    alb.ingress.kubernetes.io/group.order: "20"
+    # Lower number = higher priority. This rule is host-specific, so it must
+    # be evaluated BEFORE gitops/app/ingress.yaml's catch-all (order 20) --
+    # otherwise the catch-all matches every request first, including this
+    # host, and ArgoCD becomes unreachable (discovered on the first real
+    # test).
+    alb.ingress.kubernetes.io/group.order: "10"
     # Must match gitops/app/ingress.yaml exactly -- shared-ALB annotations
     # need to agree across every member of the group. See
     # terraform/envs/lab/cloudfront.tf's data "aws_lb" comment for why this

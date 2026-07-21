@@ -17,7 +17,13 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/group.name: minitube
-    alb.ingress.kubernetes.io/group.order: "10"
+    # Higher number = lower priority. This rule has no host: (catch-all), so
+    # it must be evaluated LAST -- otherwise the ALB matches it before the
+    # host-specific argocd-server rule and every request (including
+    # argocd.<domain>) lands here instead. Discovered on the first real
+    # test: argocd.<domain> was silently served by this api backend
+    # (HTTP 404 from uvicorn) instead of ArgoCD.
+    alb.ingress.kubernetes.io/group.order: "20"
     # Set identically on gitops/plataforma/argocd/ingress.yaml -- must match
     # across every member of the group, so this predictable name (not an
     # auto-generated one) is what terraform/envs/lab/cloudfront.tf's
