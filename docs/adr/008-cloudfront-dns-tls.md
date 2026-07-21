@@ -66,6 +66,15 @@ SSM Parameter Store foi escolhido (em vez de Secrets Manager) por não ter custo
 
 `terraform/bootstrap-iam/main.tf` ganha a `Statement` `ManagePlatformIrsaRoles`, mesma forma de `ManageAppIrsaRoles` (ADR 006), escopada a `arn:aws:iam::<account>:role/minitube-platform-*` — prefixo distinto do `minitube-app-*` para manter as duas concessões auditáveis independentemente, mesmo com ações idênticas.
 
+### 12. Quatro bugs reais encontrados na primeira sincronização real, todos corrigidos
+
+Nenhum dos quatro apareceu em `terraform plan`/`validate` — só na sincronização de verdade do ArgoCD e no teste funcional real, reforçando o princípio "existe vs. funciona" (`docs/engineering-standards.md` §11):
+
+1. **`AppProject.sourceRepos` não liberava os repositórios Helm dos add-ons.** As 3 Applications multi-source (decisão 6) falhavam com `InvalidSpecError: application repo ... is not permitted in project` — `sourceRepos` restringe **todo** source de toda Application do projeto, não só o Git. Corrigido adicionando os 3 URLs de chart (`eks-charts`, `external-dns`, `charts.jetstack.io`) à lista.
+2. **`AppProject.destinations` não liberava `kube-system`.** O chart do cert-manager cria `Role`/`RoleBinding` de leader-election em `kube-system` por padrão do upstream, independente do namespace de instalação do resto do chart — `SyncFailed: namespace kube-system is not permitted in project`. Corrigido adicionando `kube-system` aos destinos permitidos.
+3. **`aws-load-balancer-controller` não descobre o VPC ID sozinho neste cluster.** Sem `vpcId` explícito nos values, o controller tenta descobri-lo via IMDS na instância EC2 do node — falha (`context deadline exceeded`) e o pod entra em `CrashLoopBackOff`. Corrigido injetando `vpcId = aws_vpc.lab.id` via `helm.parameters` na Application (mesmo mecanismo já usado para o ARN da IRSA role — o valor muda a cada sessão, então não pode ser hardcoded em `values.yaml`).
+4. **Prioridade de regras da ALB compartilhada invertida (`group.order`).** `gitops/app/ingress.yaml` (catch-all, sem `host:`) e `gitops/plataforma/argocd/ingress.yaml` (`host: argocd.<domínio>`) compartilham a mesma `IngressGroup` (decisão 4) — a regra catch-all tinha `group.order: "10"` (maior prioridade, número menor) contra `"20"` do Ingress do ArgoCD, então a ALB casava **toda** requisição — inclusive `argocd.<domínio>` — com o backend `api` antes de avaliar a regra específica de host. Sintoma: `argocd.<domínio>` respondia `404` do `uvicorn` (a API FastAPI), TLS válido, sem nenhum erro do lado do ArgoCD. Corrigido invertendo os valores: regras com `host:` específico precisam de número **menor** (maior prioridade) que o catch-all.
+
 ## Consequências
 
 - `terraform/bootstrap-iam/main.tf` ganha a `Statement` `ManagePlatformIrsaRoles` (aplicado via CloudShell/root, antes de qualquer `apply` em `envs/lab`).
