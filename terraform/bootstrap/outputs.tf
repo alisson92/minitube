@@ -32,3 +32,8 @@ output "acm_certificate_arn" {
   description = "ARN of the wildcard ACM certificate (*.<domain_name>), looked up by terraform/envs/lab (data \"aws_acm_certificate\") for the CloudFront distribution and the ArgoCD ALB Ingress"
   value       = aws_acm_certificate_validation.wildcard.certificate_arn
 }
+
+output "argocd_repo_ssh_private_key_parameter_name" {
+  description = "SSM Parameter Store name holding the ArgoCD repo SSH private key, read by terraform/envs/lab (data \"aws_ssm_parameter\") -- never via terraform_remote_state, same pattern as the two outputs above"
+  value       = aws_ssm_parameter.argocd_repo_ssh_private_key.name
+}

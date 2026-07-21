@@ -1,0 +1,28 @@
+# ClusterIssuer for Let's Encrypt via Route53 DNS-01 challenge
+# (https://cert-manager.io/docs/configuration/acme/dns01/route53/). No
+# Certificate resource requests one yet in this phase -- CloudFront and the
+# ALB both use the existing ACM wildcard certificate from
+# terraform/bootstrap/dns.tf instead (see docs/adr/008-cloudfront-dns-tls.md).
+# This only proves the ClusterIssuer itself reaches Ready.
+#
+# hostedZoneID is hardcoded rather than templated: the zone is persistent
+# (terraform/bootstrap/), so its ID is stable across every envs/lab
+# session -- same reasoning as var.operator_role_arn. Source of truth is the
+# route53_zone_id output in terraform/bootstrap/outputs.tf; re-fetch it via
+# `terraform output -raw route53_zone_id` (bootstrap/) if the zone is ever
+# recreated.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-route53
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: alissoncorrealima@hotmail.com
+    privateKeySecretRef:
+      name: letsencrypt-route53-account-key
+    solvers:
+      - dns01:
+          route53:
+            region: us-east-1
+            hostedZoneID: Z0190945FAC30FZPOYPT

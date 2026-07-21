@@ -12,7 +12,7 @@ Este runbook documenta `terraform/envs/lab/scripts/validate-argocd.sh`, que conf
 
 ### 1. Deploy key SSH somente-leitura para o ArgoCD ler o repositório privado
 
-O repositório `alisson92/minitube` é privado — o ArgoCD precisa de credencial própria (não herda sua chave SSH local). Gerar um par dedicado, cadastrar a chave pública como Deploy Key **read-only** no GitHub, e exportar a privada como variável do Terraform (nunca commitada, nunca com default):
+O repositório `alisson92/minitube` é privado — o ArgoCD precisa de credencial própria (não herda sua chave SSH local). **Desde a Fase 4 (ADR 008), este é um setup único** — a chave privada persiste em `aws_ssm_parameter.argocd_repo_ssh_private_key` (`terraform/bootstrap/ssm.tf`), lida por `envs/lab` via `data source` em toda sessão, sem precisar ser regenerada ou reexportada a cada `apply`. Só repita os passos abaixo se o parâmetro SSM ainda não existir (primeiro setup do projeto) ou se a chave precisar ser rotacionada por algum motivo.
 
 ```bash
 # 1. Gerar o par de chaves fora do repositório (usar um diretório temporário)
@@ -24,11 +24,18 @@ gh repo deploy-key add /tmp/argocd-minitube-deploy-key.pub \
   --repo alisson92/minitube \
   --title "argocd-minitube-readonly"
 
-# 3. Exportar a chave PRIVADA para o Terraform (nunca em .tfvars, nunca commitada)
-export TF_VAR_argocd_repo_ssh_private_key="$(cat /tmp/argocd-minitube-deploy-key)"
+# 3. Gravar a chave PRIVADA no SSM Parameter Store, via um único apply de
+#    terraform/bootstrap/ (nunca em .tfvars, nunca commitada) -- depois
+#    deste apply, lifecycle.ignore_changes garante que ela nunca mais
+#    precisa ser passada de novo
+cd terraform/bootstrap
+AWS_PROFILE=cloudlab terraform apply \
+  -var argocd_repo_ssh_private_key="$(cat /tmp/argocd-minitube-deploy-key)"
+
+rm -f /tmp/argocd-minitube-deploy-key /tmp/argocd-minitube-deploy-key.pub
 ```
 
-⚠️ Sem essa variável exportada, `terraform plan`/`apply` falha pedindo a variável sensível `argocd_repo_ssh_private_key` (sem default, de propósito).
+⚠️ Se o parâmetro SSM ainda não existir e você rodar `terraform apply` em `envs/lab` sem antes ter feito o passo 3 acima em `bootstrap/`, o `data "aws_ssm_parameter"` em `envs/lab/argocd.tf` falha com "parameter not found" — a ordem importa, `bootstrap/` primeiro.
 
 ### 2. VPC + EKS + bucket S3 + IRSA + acesso ao cluster (mesmo pré-requisito das fases anteriores)
 
@@ -58,12 +65,6 @@ AWS_PROFILE=cloudlab terraform apply \
 
 AWS_PROFILE=cloudlab terraform plan     # deve mostrar só o restante: S3, IRSA, namespace argocd, helm_releases
 AWS_PROFILE=cloudlab terraform apply
-```
-
-Depois do `apply`, as chaves locais não precisam mais existir em disco:
-
-```bash
-rm -f /tmp/argocd-minitube-deploy-key /tmp/argocd-minitube-deploy-key.pub
 ```
 
 ## Como acessar a UI do ArgoCD

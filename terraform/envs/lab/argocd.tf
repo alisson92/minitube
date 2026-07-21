@@ -25,6 +25,15 @@ resource "kubernetes_namespace_v1" "argocd" {
   depends_on = [aws_eks_access_entry.operator, aws_eks_access_policy_association.operator_admin]
 }
 
+# Read from SSM Parameter Store (terraform/bootstrap/ssm.tf), not a TF_VAR --
+# the key persists across every envs/lab apply/destroy cycle instead of
+# needing to be regenerated and re-exported each session. See
+# docs/adr/008-cloudfront-dns-tls.md.
+data "aws_ssm_parameter" "argocd_repo_ssh_private_key" {
+  name            = "/${var.project}/argocd-repo-ssh-private-key"
+  with_decryption = true
+}
+
 # Repository credentials in the format ArgoCD expects for a Secret-based repo
 # credential (docs: Operator Manual > Declarative Setup > Repositories).
 # Kept as a standalone resource rather than under the chart's
@@ -44,7 +53,7 @@ resource "kubernetes_secret_v1" "argocd_repo_credentials" {
   data = {
     type          = "git"
     url           = local.gitops_repo_url
-    sshPrivateKey = var.argocd_repo_ssh_private_key
+    sshPrivateKey = data.aws_ssm_parameter.argocd_repo_ssh_private_key.value
   }
 }
 
@@ -88,6 +97,13 @@ resource "helm_release" "argocd_apps" {
         destinations = [
           {
             namespace = local.platform_namespace
+            server    = "https://kubernetes.default.svc"
+          },
+          {
+            # gitops/plataforma/argocd/ingress.yaml (the argocd-server
+            # Ingress, Phase 4) targets the argocd namespace itself, not
+            # minitube-platform.
+            namespace = local.argocd_namespace
             server    = "https://kubernetes.default.svc"
           },
         ]
@@ -134,6 +150,11 @@ resource "helm_release" "argocd_apps" {
           path           = "gitops/plataforma"
           directory = {
             recurse = true
+            # The 3 add-ons' values.yaml files (Phase 4) are Helm value
+            # files consumed as a second `ref: values` source by the
+            # dedicated Applications below, not standalone K8s manifests --
+            # excluded here so directory-mode doesn't try to parse them.
+            exclude = "**/values.yaml"
           }
         }
         destination = {
@@ -146,6 +167,135 @@ resource "helm_release" "argocd_apps" {
             selfHeal = true
           }
           syncOptions = ["CreateNamespace=true"]
+        }
+      }
+
+      # The 3 platform add-ons below share the same multi-source shape:
+      # source[0] pulls this repo's static values.yaml (Git, versioned),
+      # source[1] pulls the chart straight from its official Helm repo,
+      # parameterized with the ARN of the add-on's own IRSA role (known only
+      # to Terraform at apply time). See docs/adr/008-cloudfront-dns-tls.md.
+      "aws-load-balancer-controller" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://aws.github.io/eks-charts"
+            chart          = "aws-load-balancer-controller"
+            targetRevision = var.aws_load_balancer_controller_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/aws-load-balancer-controller/values.yaml"]
+              parameters = [
+                {
+                  name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+                  value = aws_iam_role.aws_load_balancer_controller.arn
+                },
+              ]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
+        }
+      }
+
+      "external-dns" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://kubernetes-sigs.github.io/external-dns/"
+            chart          = "external-dns"
+            targetRevision = var.external_dns_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/external-dns/values.yaml"]
+              parameters = [
+                {
+                  name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+                  value = aws_iam_role.external_dns.arn
+                },
+              ]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
+        }
+      }
+
+      "cert-manager" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://charts.jetstack.io"
+            chart          = "cert-manager"
+            targetRevision = var.cert_manager_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/cert-manager/values.yaml"]
+              parameters = [
+                {
+                  name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+                  value = aws_iam_role.cert_manager.arn
+                },
+              ]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        # retry/backoff (not sync-waves/App-of-Apps) covers the case where
+        # this Application's ClusterIssuer manifest (synced by the
+        # "platform" Application, a separate Application with no ordering
+        # guarantee relative to this one) reconciles before the cert-manager
+        # CRDs this chart installs actually exist on first sync.
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
+          retry = {
+            limit = 5
+            backoff = {
+              duration    = "10s"
+              factor      = 2
+              maxDuration = "3m"
+            }
+          }
         }
       }
     }

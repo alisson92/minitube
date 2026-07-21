@@ -1,0 +1,21 @@
+# Static values for the cert-manager chart
+# (https://github.com/cert-manager/cert-manager/tree/master/deploy/charts/cert-manager),
+# version pinned via var.cert_manager_chart_version in
+# terraform/envs/lab/argocd.tf. serviceAccount.annotations (the IRSA role
+# ARN) is injected dynamically by that same Application via `helm.parameters`.
+
+# Current key for this chart (replaced the old top-level `installCRDs`).
+crds:
+  enabled: true
+
+serviceAccount:
+  create: true
+  name: cert-manager
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi

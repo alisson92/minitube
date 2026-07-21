@@ -2,23 +2,32 @@
 
 Este diretório é sincronizado continuamente pelo ArgoCD através da Application
 raiz `platform` (declarada em `terraform/envs/lab/argocd.tf`, chart
-`argocd-apps`), no `AppProject minitube-platform`.
+`argocd-apps`), no `AppProject minitube-platform`. A partir da Fase 4, também
+hospeda os `values.yaml` estáticos consumidos por 3 Applications dedicadas
+(uma por add-on), declaradas na mesma `argocd.tf`.
 
-## Por que está vazio nesta fase
+## Conteúdo (Fase 4 — Borda, DNS e TLS)
 
-A Fase 3 (GitOps) cria a Application raiz que aponta para este diretório
-antes de haver qualquer componente de plataforma real para sincronizar — ela
-reconcilia "0 recursos" (status `Synced`, sem `Healthy` por não haver
-workload nenhum), o que é esperado e não é uma falha. A vantagem de já
-existir agora: a partir da Fase 5, adicionar `kube-prometheus-stack` e Loki
-aqui é só um commit em `gitops/`, sem precisar tocar Terraform de novo.
+- **`aws-load-balancer-controller/values.yaml`**, **`external-dns/values.yaml`**,
+  **`cert-manager/values.yaml`** — values estáticos de cada add-on. Não são
+  manifests Kubernetes válidos sozinhos (por isso a Application `platform`
+  os exclui via `directory.exclude` em vez de tentar sincronizá-los como
+  recursos) — são consumidos como um segundo `source` (`ref: values`) pelas
+  3 Applications multi-source dedicadas a cada add-on.
+- **`cert-manager/cluster-issuer.yaml`** — único manifest plano real desta
+  fase, sincronizado normalmente pela Application `platform`.
+- **`argocd/ingress.yaml`** — Ingress do `argocd-server`, compartilhando a
+  mesma ALB do Ingress de `gitops/app/` (mesmo `IngressGroup`).
+
+Decisões de arquitetura (multi-source Application vs. Kustomize `helmCharts`,
+IngressGroup compartilhado, ClusterIssuer sem consumidor público ainda) em
+[`docs/adr/008-cloudfront-dns-tls.md`](../../docs/adr/008-cloudfront-dns-tls.md).
 
 ## O que chega em fases futuras
 
 - **Fase 5 — Observabilidade:** `kube-prometheus-stack` (Prometheus +
-  Grafana + Alertmanager) e Loki, provavelmente como manifests que apontam
-  para os charts oficiais via a própria Application (source `helm`), ou como
-  subdiretórios Kustomize — decisão a registrar em ADR quando a fase chegar.
+  Grafana + Alertmanager) e Loki, seguindo o mesmo padrão de subdiretório
+  por componente já estabelecido nesta fase.
 - **Candidato futuro, não decidido nem implementado:** migrar a própria
   instalação do ArgoCD para *self-management* (uma Application aqui gerenciando
   o Helm release do próprio ArgoCD, hoje feito via `helm_release` no

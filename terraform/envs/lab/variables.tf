@@ -80,12 +80,6 @@ variable "operator_role_arn" {
   default     = "arn:aws:iam::479213212405:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_cloudlab-operator_05e61e8d7c72bcd9"
 }
 
-variable "argocd_repo_ssh_private_key" {
-  description = "SSH private key (OpenSSH format) for the dedicated, read-only GitHub deploy key ArgoCD uses to clone this repository. Sourced from TF_VAR_argocd_repo_ssh_private_key at apply time — never committed, never given a default. See docs/runbooks/validate-argocd-gitops.md for how to generate and register the key."
-  type        = string
-  sensitive   = true
-}
-
 variable "argocd_chart_version" {
   description = "Pinned version of the argo-cd Helm chart (https://artifacthub.io/packages/helm/argo/argo-cd). Check for a newer stable release before bumping."
   type        = string
@@ -102,4 +96,28 @@ variable "argocd_apps_chart_version" {
   description = "Pinned version of the argocd-apps Helm chart (https://artifacthub.io/packages/helm/argo/argocd-apps), used to declare the root Applications/AppProject via Terraform values instead of a manually-applied Application manifest."
   type        = string
   default     = "2.0.5"
+}
+
+variable "domain_name" {
+  description = "Must match terraform/bootstrap's domain_name (the source of truth for the hosted zone/certificate) -- duplicated here rather than read via terraform_remote_state, see dns-data.tf."
+  type        = string
+  default     = "minitube.projetodevops.com.br"
+}
+
+variable "aws_load_balancer_controller_chart_version" {
+  description = "Pinned version of the aws-load-balancer-controller Helm chart (https://artifacthub.io/packages/helm/aws/aws-load-balancer-controller, repo https://aws.github.io/eks-charts). Check for a newer stable release, and re-download terraform/envs/lab/policies/aws-load-balancer-controller-iam-policy.json, before bumping."
+  type        = string
+  default     = "3.4.2"
+}
+
+variable "external_dns_chart_version" {
+  description = "Pinned version of the external-dns Helm chart (https://artifacthub.io/packages/helm/external-dns/external-dns, repo https://kubernetes-sigs.github.io/external-dns/)."
+  type        = string
+  default     = "1.21.1"
+}
+
+variable "cert_manager_chart_version" {
+  description = "Pinned version of the cert-manager Helm chart (https://artifacthub.io/packages/helm/cert-manager/cert-manager, repo https://charts.jetstack.io). Keep the leading 'v' -- the chart's own version tags use it."
+  type        = string
+  default     = "v1.21.0"
 }

@@ -1,0 +1,43 @@
+# Catch-all (no host:) on purpose: app.<domain> is CloudFront's alias
+# (terraform/envs/lab/cloudfront.tf), which routes /api/* here uncached --
+# a host-based rule would collide with that Terraform-managed alias instead
+# of complementing it. Shares the same IngressGroup as
+# gitops/plataforma/argocd/ingress.yaml (group.name: minitube) so the
+# aws-load-balancer-controller provisions one ALB, not two. See
+# docs/adr/008-cloudfront-dns-tls.md.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  namespace: minitube-app
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: minitube
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: minitube
+    alb.ingress.kubernetes.io/group.order: "10"
+    # Set identically on gitops/plataforma/argocd/ingress.yaml -- must match
+    # across every member of the group, so this predictable name (not an
+    # auto-generated one) is what terraform/envs/lab/cloudfront.tf's
+    # `data "aws_lb"` looks up by.
+    alb.ingress.kubernetes.io/load-balancer-name: minitube-app
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # Persistent ACM wildcard cert from terraform/bootstrap/dns.tf -- safe to
+    # hardcode, same pattern as var.operator_role_arn. Re-fetch via
+    # `terraform output -raw acm_certificate_arn` (bootstrap/) if reissued.
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:us-east-1:479213212405:certificate/3aec10c8-c0e3-4376-bbc6-943f17d3298d"
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 80

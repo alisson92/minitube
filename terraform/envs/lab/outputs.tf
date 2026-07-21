@@ -67,3 +67,33 @@ output "argocd_namespace" {
   description = "Namespace where ArgoCD is installed"
   value       = kubernetes_namespace_v1.argocd.metadata[0].name
 }
+
+output "aws_load_balancer_controller_role_arn" {
+  description = "ARN of the IRSA role for the aws-load-balancer-controller add-on"
+  value       = aws_iam_role.aws_load_balancer_controller.arn
+}
+
+output "external_dns_role_arn" {
+  description = "ARN of the IRSA role for the external-dns add-on"
+  value       = aws_iam_role.external_dns.arn
+}
+
+output "cert_manager_role_arn" {
+  description = "ARN of the IRSA role for the cert-manager add-on"
+  value       = aws_iam_role.cert_manager.arn
+}
+
+output "cloudfront_distribution_id" {
+  description = "ID of the CloudFront distribution in front of the video bucket and the ALB, used by the cache invalidation and validation scripts"
+  value       = aws_cloudfront_distribution.app.id
+}
+
+output "cloudfront_distribution_domain_name" {
+  description = "CloudFront-assigned domain name (aliased to app.<domain_name> via aws_route53_record.app)"
+  value       = aws_cloudfront_distribution.app.domain_name
+}
+
+output "app_url" {
+  description = "Public HTTPS URL for the app, served via CloudFront -- the Phase 4 completion criterion"
+  value       = "https://app.${var.domain_name}"
+}
