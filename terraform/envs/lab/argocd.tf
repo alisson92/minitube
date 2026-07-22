@@ -5,6 +5,20 @@ locals {
   gitops_revision    = var.argocd_gitops_revision
 }
 
+
+# EKS access entries return success from CreateAccessEntry/AssociateAccessPolicy
+# in ~1s, but the control plane's authorizer takes some extra seconds to
+# actually start accepting the new principal -- there's no describe/wait
+# call exposed by the API to confirm propagation. This never surfaced while
+# bootstrap_cluster_creator_admin_permissions was true, because that grant is
+# baked into cluster creation itself (~10 minutes, plenty of time to
+# propagate); now that access is 100% explicit (see comment on
+# aws_eks_cluster.lab in eks.tf), nothing else buffers that delay.
+resource "time_sleep" "operator_access_propagation" {
+  depends_on      = [aws_eks_access_entry.operator, aws_eks_access_policy_association.operator_admin]
+  create_duration = "30s"
+}
+
 resource "kubernetes_namespace_v1" "argocd" {
   metadata {
     name = local.argocd_namespace
@@ -20,9 +34,10 @@ resource "kubernetes_namespace_v1" "argocd" {
   # everything that depends on it (the repo secret, both helm_releases),
   # revoking kubectl access mid-destroy and leaving the k8s-side resources
   # stuck ("cannot delete resource secrets"). This depends_on forces the
-  # correct order both ways: access granted before k8s resources are
-  # created, and k8s resources torn down before access is revoked.
-  depends_on = [aws_eks_access_entry.operator, aws_eks_access_policy_association.operator_admin]
+  # correct order both ways: access granted (and propagated, via the
+  # time_sleep above) before k8s resources are created, and k8s resources
+  # torn down before access is revoked.
+  depends_on = [time_sleep.operator_access_propagation]
 }
 
 # Read from SSM Parameter Store (terraform/bootstrap/ssm.tf), not a TF_VAR --

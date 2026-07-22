@@ -2,14 +2,14 @@
 #
 # authentication_mode = "API" uses IAM access entries instead of the legacy
 # aws-auth ConfigMap — the current AWS-recommended mode for new clusters.
-# bootstrap_cluster_creator_admin_permissions grants cluster-admin to
-# whichever identity actually calls CreateCluster — which, in practice, has
-# sometimes been a CloudShell/root session rather than cloudlab-operator (the
-# daily operator identity envs/lab is meant to be fully usable from). The
-# explicit access entry below grants cluster-admin to whoever *applies this
-# Terraform module* regardless of who originally created the cluster, so
-# kubectl works for the daily operator even on a session that didn't create
-# the cluster itself.
+# bootstrap_cluster_creator_admin_permissions is explicitly false: when true,
+# EKS auto-creates a hidden access entry for whichever identity calls
+# CreateCluster, which collides (409 ResourceInUseException) with the
+# explicit aws_eks_access_entry.operator below whenever that identity happens
+# to be the same as var.operator_role_arn (e.g. cloudlab-operator applying
+# this module itself, as opposed to a CloudShell/root session). Keeping it
+# false means access is 100% declared by Terraform, deterministically,
+# regardless of who runs apply — no race, no import workaround needed.
 resource "aws_eks_cluster" "lab" {
   name     = local.cluster_name
   role_arn = data.aws_iam_role.eks_cluster.arn
@@ -17,7 +17,7 @@ resource "aws_eks_cluster" "lab" {
 
   access_config {
     authentication_mode                         = "API"
-    bootstrap_cluster_creator_admin_permissions = true
+    bootstrap_cluster_creator_admin_permissions = false
   }
 
   vpc_config {
