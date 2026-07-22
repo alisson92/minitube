@@ -22,7 +22,7 @@ spec:
       containers:
         - name: api
           # Immutable tag (ECR image_tag_mutability = IMMUTABLE) — never :latest.
-          image: 479213212405.dkr.ecr.us-east-1.amazonaws.com/minitube-api:v0.1.1
+          image: 479213212405.dkr.ecr.us-east-1.amazonaws.com/minitube-api:v0.1.2
           ports:
             - containerPort: 8000
           env:
@@ -45,13 +45,13 @@ spec:
               memory: 256Mi
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /api/healthz
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /api/healthz
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 20

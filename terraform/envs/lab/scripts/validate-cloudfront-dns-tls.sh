@@ -157,13 +157,13 @@ if [[ "$video_id" == "None" || -z "$video_id" ]]; then
     -f lavfi -i sine=frequency=1000:duration=3 \
     -c:v libx264 -c:a aac -shortest -y -loglevel error "$sample"
 
-  response=$(curl -sf -X POST "http://127.0.0.1:${LOCAL_PORT}/videos" -F "file=@${sample}")
+  response=$(curl -sf -X POST "http://127.0.0.1:${LOCAL_PORT}/api/videos" -F "file=@${sample}")
   video_id=$(jq -r '.video_id' <<< "$response")
   echo "video_id=$video_id"
 
   job_ready() {
     local status
-    status=$(curl -sf "http://127.0.0.1:${LOCAL_PORT}/videos/${video_id}" 2>/dev/null | jq -r '.status // empty' 2>/dev/null || echo "")
+    status=$(curl -sf "http://127.0.0.1:${LOCAL_PORT}/api/videos/${video_id}" 2>/dev/null | jq -r '.status // empty' 2>/dev/null || echo "")
     [[ "$status" == "succeeded" ]]
   }
   poll_until "$JOB_TIMEOUT_SECONDS" "transcode job completion" job_ready

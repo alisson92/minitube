@@ -6,7 +6,7 @@
 
 `kubectl apply -k gitops/app/` sem erro e os pods `Running` provam que os manifests **existem com a configuração esperada** — não provam que um vídeo real consegue ser enviado, transcodificado e servido como HLS. A pergunta que importa: um upload real dispara um Job real, que roda o FFmpeg de verdade e grava segmentos legíveis no S3? Isso só se responde exercitando o pipeline ponta a ponta.
 
-Este runbook documenta `terraform/envs/lab/scripts/validate-transcoding.sh`, que gera um vídeo sintético com FFmpeg (sem commitar binário no repo), envia via `POST /videos`, espera o Job terminar, e confirma a playlist + segmentos no S3.
+Este runbook documenta `terraform/envs/lab/scripts/validate-transcoding.sh`, que gera um vídeo sintético com FFmpeg (sem commitar binário no repo), envia via `POST /api/videos`, espera o Job terminar, e confirma a playlist + segmentos no S3.
 
 ## Pré-requisitos
 
@@ -78,8 +78,8 @@ Dependências no seu ambiente: `aws` CLI, `jq`, `terraform`, `kubectl`, `curl`, 
 
 - Gera um clipe sintético de 3s (`ffmpeg -f lavfi`) — sem depender de um arquivo de vídeo commitado no repo.
 - Abre um `kubectl port-forward` para o Service da API (sem Ingress/ALB ainda — isso é Fase 4).
-- `POST /videos` com o clipe; a API grava o bruto em `s3://<bucket>/raw/<video_id>.mp4` e cria um Job `transcode-<video_id>`.
-- Faz *poll* em `GET /videos/{video_id}` até `succeeded`/`failed` (timeout de 300s).
+- `POST /api/videos` com o clipe; a API grava o bruto em `s3://<bucket>/raw/<video_id>.mp4` e cria um Job `transcode-<video_id>`.
+- Faz *poll* em `GET /api/videos/{video_id}` até `succeeded`/`failed` (timeout de 300s).
 - Confirma via `aws s3api head-object`/`aws s3 ls` que `hls/<video_id>/playlist.m3u8` e ao menos um segmento `.ts` existem.
 - Se o Job falhar, imprime os logs do pod antes de sair (`kubectl logs job/transcode-<video_id>`), pra facilitar debug.
 - **Cleanup garantido:** `trap cleanup EXIT` mata o `port-forward` e remove o vídeo temporário, mesmo em falha.
