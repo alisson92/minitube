@@ -70,6 +70,26 @@ data "aws_lb" "app_shared" {
   depends_on = [helm_release.argocd_apps]
 }
 
+# CloudFront's custom origin does TLS hostname verification against
+# whatever `domain_name` is set to below -- the ALB's raw AWS-assigned DNS
+# name isn't covered by any SAN on the ACM wildcard cert it serves
+# (*.${var.domain_name} only), so pointing the origin straight at
+# data.aws_lb.app_shared.dns_name fails the handshake with a CloudFront
+# 502, discovered testing /api/* end-to-end for the first time. This alias
+# record gives the ALB a name under our own domain, which the wildcard cert
+# already covers.
+resource "aws_route53_record" "alb_origin" {
+  zone_id = data.aws_route53_zone.minitube.zone_id
+  name    = "alb-origin.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.app_shared.dns_name
+    zone_id                = data.aws_lb.app_shared.zone_id
+    evaluate_target_health = false
+  }
+}
+
 resource "aws_cloudfront_distribution" "app" {
   enabled     = true
   price_class = "PriceClass_100" # US/Europe only -- a lab doesn't need global edge coverage
@@ -83,7 +103,7 @@ resource "aws_cloudfront_distribution" "app" {
 
   origin {
     origin_id   = "alb-api"
-    domain_name = data.aws_lb.app_shared.dns_name
+    domain_name = aws_route53_record.alb_origin.name
 
     custom_origin_config {
       http_port              = 80
