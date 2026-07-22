@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Functional smoke test for the app: generates a synthetic test video with
 # FFmpeg (no binary committed to the repo), uploads it through the real
-# API (POST /videos), waits for the Job it creates to finish, and confirms
+# API (POST /api/videos), waits for the Job it creates to finish, and confirms
 # real HLS output (playlist + at least one segment) landed in S3 -- proves
 # the whole pipeline (API -> S3 raw -> Job -> FFmpeg -> S3 hls), not just
 # that `kubectl apply` and `terraform apply` exited 0.
@@ -70,7 +70,7 @@ port_forward_pid=$!
 sleep 3
 
 overall=0
-run_check "API is reachable and healthy" curl -sf "http://127.0.0.1:${LOCAL_PORT}/healthz" || { overall=1; exit 1; }
+run_check "API is reachable and healthy" curl -sf "http://127.0.0.1:${LOCAL_PORT}/api/healthz" || { overall=1; exit 1; }
 
 tmpdir=$(mktemp -d)
 sample="$tmpdir/sample.mp4"
@@ -80,7 +80,7 @@ ffmpeg -f lavfi -i testsrc=duration=3:size=640x360:rate=30 \
   -c:v libx264 -c:a aac -shortest -y -loglevel error "$sample"
 
 echo "Uploading test video via POST /videos..."
-response=$(curl -sf -X POST "http://127.0.0.1:${LOCAL_PORT}/videos" -F "file=@${sample}")
+response=$(curl -sf -X POST "http://127.0.0.1:${LOCAL_PORT}/api/videos" -F "file=@${sample}")
 video_id=$(jq -r '.video_id' <<< "$response")
 echo "video_id=$video_id"
 
@@ -103,7 +103,7 @@ while [[ "$status" != "succeeded" && "$status" != "failed" ]]; do
   # treated as "still running" until the timeout either. GET /videos returns
   # {"video_id":...,"status":...} on success; anything else (including a
   # FastAPI {"detail":...} error body) fails the jq lookup for .status.
-  raw_response=$(curl -s "http://127.0.0.1:${LOCAL_PORT}/videos/${video_id}" 2>/dev/null) || raw_response=""
+  raw_response=$(curl -s "http://127.0.0.1:${LOCAL_PORT}/api/videos/${video_id}" 2>/dev/null) || raw_response=""
   polled_status=$(jq -r '.status // empty' <<< "$raw_response" 2>/dev/null) || polled_status=""
   if [[ -z "$polled_status" ]]; then
     consecutive_errors=$((consecutive_errors + 1))

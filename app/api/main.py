@@ -1,19 +1,25 @@
 import uuid
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
 
 import jobs
 import s3_client
 
 app = FastAPI(title="minitube-api")
 
+# CloudFront's /api/* cache behavior (terraform/envs/lab/cloudfront.tf)
+# forwards paths to the ALB unmodified -- the ALB Ingress controller doesn't
+# support path rewriting, so the app must serve every route under /api
+# itself to be reachable from the public app.<domain> URL.
+router = APIRouter(prefix="/api")
 
-@app.get("/healthz")
+
+@router.get("/healthz")
 def healthz():
     return {"status": "ok"}
 
 
-@app.post("/videos")
+@router.post("/videos")
 def upload_video(file: UploadFile):
     video_id = uuid.uuid4().hex
     raw_key = s3_client.raw_key(video_id, file.filename or "video")
@@ -25,9 +31,12 @@ def upload_video(file: UploadFile):
     return {"video_id": video_id, "job_name": job_name, "status": "queued"}
 
 
-@app.get("/videos/{video_id}")
+@router.get("/videos/{video_id}")
 def get_video_status(video_id: str):
     status = jobs.get_job_status(video_id)
     if status == "not_found":
         raise HTTPException(status_code=404, detail="video not found")
     return {"video_id": video_id, "status": status}
+
+
+app.include_router(router)

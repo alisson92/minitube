@@ -31,6 +31,15 @@ metadata:
     alb.ingress.kubernetes.io/load-balancer-name: minitube-app
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # Without this, the LBC defaults the target group health check to the
+    # Ingress path (/), which the API doesn't implement -- every target
+    # stayed unhealthy and every request through the ALB 502'd, discovered
+    # testing app.minitube.../api/ directly (the functional validation
+    # script never exercises this path -- it uploads via kubectl
+    # port-forward straight to the Service). /api/healthz, not /healthz:
+    # this health check hits the pod directly, and every route the app
+    # serves lives under /api (see app/api/main.py).
+    alb.ingress.kubernetes.io/healthcheck-path: /api/healthz
     # Persistent ACM wildcard cert from terraform/bootstrap/dns.tf -- safe to
     # hardcode, same pattern as var.operator_role_arn. Re-fetch via
     # `terraform output -raw acm_certificate_arn` (bootstrap/) if reissued.

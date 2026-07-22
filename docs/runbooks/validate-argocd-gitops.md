@@ -89,7 +89,7 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.pas
 - **Checagens executadas:**
   1. `argocd-server` e `argocd-repo-server` atingem `Available`; `argocd-application-controller` tem pelo menos 1 réplica `Ready`.
   2. As duas Applications raiz (`app`, `platform`) atingem `Synced` — `app` também precisa de `Healthy`; `platform` aceita health vazio, já que sincroniza 0 recursos nesta fase (ver `gitops/plataforma/README.md`).
-  3. `Deployment/api` existe, carrega a annotation `argocd.argoproj.io/tracking-id` (prova de que foi o ArgoCD que criou o recurso, não um `kubectl apply` manual rodado à parte), e a API responde `/healthz` via port-forward.
+  3. `Deployment/api` existe, carrega a annotation `argocd.argoproj.io/tracking-id` (prova de que foi o ArgoCD que criou o recurso, não um `kubectl apply` manual rodado à parte), e a API responde `/api/healthz` via port-forward.
   4. **Checagem central — drift e selfHeal:** o script roda `kubectl scale deployment/api --replicas=2` (uma divergência manual proposital, nunca feita via Git) e faz *poll* até o ArgoCD reverter sozinho para `replicas: 1` (o que `gitops/app/deployment.yaml` declara), com timeout de 120s.
 - **Cleanup garantido:** `trap cleanup EXIT` mata o `port-forward` e, se o teste de drift tiver sido iniciado mas não confirmado revertido, força o `scale --replicas=1` de volta antes de sair — o cluster nunca fica divergido do Git por causa do próprio teste.
 
