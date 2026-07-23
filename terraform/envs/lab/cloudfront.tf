@@ -56,18 +56,46 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 # that Ingress pins a predictable name, making this lookup by name instead
 # of guessing the controller's auto-generated tag values.
 #
-# Known chicken-and-egg consequence: on a brand-new environment, the very
-# first `terraform apply` creates helm_release.argocd_apps (which starts the
-# add-ons + Ingress reconciling) in the SAME run this data source is read in,
-# so the ALB may not exist yet. If this data source errors ("no matching
-# load balancer found"), wait ~1-2 min for the controller to finish
-# provisioning it (`aws elbv2 describe-load-balancers --names minitube-app`),
-# then re-run `terraform apply` -- same two-phase-apply pattern already used
-# for the initial ArgoCD bootstrap, see ADR 007 decision 8.
+# depends_on only orders the Terraform API calls, not the in-cluster
+# reconciliation -- helm_release.argocd_apps returns as soon as the
+# Application CRs are created, well before the controller has actually
+# provisioned the ALB. Without a real wait, the very first `apply` of a
+# brand-new environment fails here ~always ("no matching load balancer
+# found"), forcing a manual re-run. Polls until the ALB exists instead, so
+# a single `apply` always completes end to end. See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+resource "null_resource" "wait_for_alb" {
+  depends_on = [helm_release.argocd_apps]
+
+  triggers = {
+    argocd_apps_id = helm_release.argocd_apps.id
+  }
+
+  provisioner "local-exec" {
+    # local-exec's default interpreter is ["/bin/sh", "-c"] -- on this
+    # system /bin/sh is dash, which doesn't understand `set -o pipefail`.
+    # Forcing bash explicitly keeps this consistent with the `set -euo
+    # pipefail` convention used by every scripts/validate-*.sh in the repo
+    # (docs/engineering-standards.md), instead of quietly downgrading to
+    # `set -eu` just because this command happens not to pipe anything today.
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      for i in $(seq 1 30); do
+        if aws elbv2 describe-load-balancers --region ${var.aws_region} --names minitube-app >/dev/null 2>&1; then
+          exit 0
+        fi
+        sleep 10
+      done
+      echo "timed out waiting for ALB 'minitube-app' to be provisioned by aws-load-balancer-controller" >&2
+      exit 1
+    EOT
+  }
+}
+
 data "aws_lb" "app_shared" {
   name = "minitube-app"
 
-  depends_on = [helm_release.argocd_apps]
+  depends_on = [null_resource.wait_for_alb]
 }
 
 # CloudFront's custom origin does TLS hostname verification against

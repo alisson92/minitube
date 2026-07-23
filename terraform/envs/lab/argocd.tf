@@ -91,17 +91,27 @@ resource "helm_release" "argocd" {
   depends_on = [aws_eks_node_group.lab_spot]
 }
 
-# Declares the root "app of apps" (2 Applications + 1 AppProject) via Helm
-# values instead of a manually-applied Application manifest — the bootstrap
-# itself stays declarative, closing the gap left open by ADR 006 item 7.
-resource "helm_release" "argocd_apps" {
-  name       = "argocd-apps"
+# Split out from helm_release.argocd_apps below into its own release --
+# discovered on a real `destroy` that a single release deletes all its
+# templated resources with no ordering guarantee between different CRD
+# kinds. With the AppProject and the Applications that reference it in the
+# same release, `helm uninstall` deleted the AppProject before the "app"/
+# "platform" Applications' resources-finalizer finished pruning, and ArgoCD
+# permanently failed with `error getting app project "minitube-platform":
+# ... not found` -- the Applications never finished deleting. Terraform's
+# own dependency graph (see depends_on on helm_release.argocd_apps below)
+# gives an explicit, reliable ordering that Helm's uninstall alone can't:
+# this release is destroyed only *after* argocd_apps, so the project
+# outlives every Application that references it. See
+# docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+resource "helm_release" "argocd_project" {
+  name       = "argocd-project"
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argocd-apps"
   version    = var.argocd_apps_chart_version
   namespace  = kubernetes_namespace_v1.argocd.metadata[0].name
 
-  depends_on = [helm_release.argocd, kubernetes_secret_v1.argocd_repo_credentials]
+  depends_on = [helm_release.argocd]
 
   values = [yamlencode({
     projects = {
@@ -151,11 +161,86 @@ resource "helm_release" "argocd_apps" {
         ]
       }
     }
+  })]
+}
 
+# Declares the root "app of apps" (the Applications themselves) via Helm
+# values instead of a manually-applied Application manifest — the bootstrap
+# itself stays declarative, closing the gap left open by ADR 006 item 7.
+resource "helm_release" "argocd_apps" {
+  name       = "argocd-apps"
+  repository = "https://argoproj.github.io/argo-helm"
+  chart      = "argocd-apps"
+  version    = var.argocd_apps_chart_version
+  namespace  = kubernetes_namespace_v1.argocd.metadata[0].name
+
+  # wait=true is already the provider default (made explicit here); on
+  # `destroy` it makes `helm uninstall` block until the Application CRs are
+  # actually gone -- load-bearing now that "app"/"platform" carry the
+  # resources-finalizer below, since that's what makes ArgoCD prune the
+  # shared-ALB Ingress/TargetGroupBinding (and the LBC deprovision the ALB)
+  # while the node group is still up, instead of orphaning them. timeout
+  # bumped past the provider's 300s default to give that prune + AWS
+  # cleanup enough headroom. See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+  wait    = true
+  timeout = 600
+
+  # None of the networking resources on the egress path are referenced by
+  # this release's values, so nothing forced them to survive past it --
+  # discovered on two separate real `destroy` runs. First attempt: only the
+  # NAT gateway/private route/private associations were pinned here, but
+  # the NAT gateway's own subnet is *public* -- its route to the internet
+  # gateway (aws_route.public_internet_gateway) and the public route table
+  # associations had no dependency on this release either, so Terraform
+  # destroyed them within the first minute regardless. The NAT gateway
+  # itself survived (per this fix) but sat isolated with nowhere to send
+  # traffic, so the LBC pods (private subnet) still lost all AWS API
+  # connectivity mid-cleanup, permanently stalling the resources-finalizer
+  # the same way. Pinning the *entire* egress path -- both the private side
+  # (NAT gateway, its route, its subnet associations) and the public side
+  # the NAT gateway itself depends on (internet gateway, the public route,
+  # its subnet associations) -- is what actually keeps egress alive for the
+  # whole lifetime of this release, in both directions: created before it
+  # (nodes/pods need egress from the start anyway) and destroyed only after
+  # it. See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+  # aws_iam_role.aws_load_balancer_controller/aws_iam_role.external_dns
+  # are already implicitly protected -- their ARNs are referenced directly
+  # in the values below (helm.parameters), which makes this release
+  # implicitly depend on them. Their *policies* (aws_iam_role_policy.*) are
+  # separate resources that nothing references, so they had no such
+  # protection -- discovered on a third real `destroy` where the LBC's
+  # policy was ripped away mid-cleanup (role still assumable, but every
+  # ELBv2 call started failing with AccessDenied instead of the earlier
+  # timeout) while it was still deregistering targets and deleting the
+  # shared ALB. external-dns's policy gets the same treatment pre-emptively
+  # -- it needs it to delete the argocd.<domain> record for the pruned
+  # argocd-server Ingress, which would otherwise silently orphan a Route53
+  # record pointing at an ALB that's about to be gone.
+  depends_on = [
+    helm_release.argocd,
+    helm_release.argocd_project,
+    kubernetes_secret_v1.argocd_repo_credentials,
+    aws_nat_gateway.lab,
+    aws_route.private_nat_gateway,
+    aws_route_table_association.private,
+    aws_internet_gateway.lab,
+    aws_route.public_internet_gateway,
+    aws_route_table_association.public,
+    aws_iam_role_policy.aws_load_balancer_controller,
+    aws_iam_role_policy.external_dns,
+  ]
+
+  values = [yamlencode({
     applications = {
       app = {
         namespace = local.argocd_namespace
         project   = "default"
+        # Forces ArgoCD to prune this Application's managed resources
+        # (gitops/app/ingress.yaml, sharing the ALB via IngressGroup) before
+        # removing the Application CR itself on `destroy` -- without it,
+        # deleting the CR orphans the Ingress/ALB instead of cleaning them
+        # up. See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+        finalizers = ["resources-finalizer.argocd.argoproj.io"]
         source = {
           repoURL        = local.gitops_repo_url
           targetRevision = local.gitops_revision
@@ -177,6 +262,10 @@ resource "helm_release" "argocd_apps" {
       platform = {
         namespace = local.argocd_namespace
         project   = "minitube-platform"
+        # Same rationale as applications.app above -- this Application owns
+        # gitops/plataforma/argocd/ingress.yaml, the other Ingress sharing
+        # the ALB.
+        finalizers = ["resources-finalizer.argocd.argoproj.io"]
         source = {
           repoURL        = local.gitops_repo_url
           targetRevision = local.gitops_revision
