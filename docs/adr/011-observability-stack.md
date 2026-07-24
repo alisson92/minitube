@@ -44,9 +44,11 @@ IRSA role com a policy **gerenciada** oficial da AWS (`AmazonEBSCSIDriverPolicy`
 
 Só o *controller* (que fala com a API da AWS) usa a IRSA role — o DaemonSet *node* só formata/monta localmente, sem chamadas AWS.
 
-### 4. Risco conhecido, não confirmado: órfão de volume EBS no destroy
+### 4. Risco conhecido, checado no destroy real: órfão de volume EBS
 
-Mesma classe de bug já documentada 4 vezes para a ALB do LBC (ADR 008 itens 7-9 → ADR 009 decisões 5-6 → ADR 010): apagar uma `PVC` só dispara `DeleteVolume` de verdade se o pod controller do EBS CSI driver ainda estiver vivo e autorizado nesse instante. As Applications `kube-prometheus-stack` e `loki` (donas de PVC) ganharam o mesmo finalizer `resources-finalizer.argocd.argoproj.io` já usado por `app`/`platform`, e a policy do EBS CSI driver (junto com a do Grafana) entrou no `depends_on` de `helm_release.argocd_apps`, mesmo tratamento preventivo já dado à policy do LBC/external-dns no ADR 010. **Não há garantia de ordem entre Applications-irmãs dentro do mesmo `helm_release`** (o mesmo gap que o ADR 010 decisão 2 corrigiu para a `AppProject`) — se o pod do `ebs-csi-driver` for removido antes da poda de PVC das outras duas terminar, o volume pode ficar órfão na AWS. Não testado ainda nesta sessão de código; validar no primeiro ciclo `destroy` real (ver Consequências) e, se confirmado, aplicar o mesmo padrão de correção do ADR 010 (ordenação explícita).
+Mesma classe de bug já documentada 4 vezes para a ALB do LBC (ADR 008 itens 7-9 → ADR 009 decisões 5-6 → ADR 010): apagar uma `PVC` só dispara `DeleteVolume` de verdade se o pod controller do EBS CSI driver ainda estiver vivo e autorizado nesse instante. As Applications `kube-prometheus-stack` e `loki` (donas de PVC) ganharam o mesmo finalizer `resources-finalizer.argocd.argoproj.io` já usado por `app`/`platform`, e a policy do EBS CSI driver (junto com a do Grafana) entrou no `depends_on` de `helm_release.argocd_apps`, mesmo tratamento preventivo já dado à policy do LBC/external-dns no ADR 010. **Não há garantia de ordem entre Applications-irmãs dentro do mesmo `helm_release`** (o mesmo gap que o ADR 010 decisão 2 corrigiu para a `AppProject`) — o risco teórico era o pod do `ebs-csi-driver` ser removido antes da poda de PVC das outras duas terminar.
+
+**Checado no primeiro `destroy` real desta fase: não se confirmou.** `aws ec2 describe-volumes` filtrado por `tag:kubernetes.io/created-for/pvc/name` não retornou nenhum volume — `destroy` limpo, sem órfãos. O `depends_on` preventivo (mitigação de baixo custo, sem downside) permanece no código; nenhuma correção adicional foi necessária.
 
 ### 5. Grafana precisa de IRSA própria, com acesso de leitura ao CloudWatch
 

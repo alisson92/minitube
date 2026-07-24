@@ -94,7 +94,7 @@ AWS_PROFILE=cloudlab terraform plan -destroy   # revisar: remove a stack de obse
 AWS_PROFILE=cloudlab terraform destroy
 ```
 
-⚠️ **Risco conhecido, ainda não confirmado nem descartado** (ver [ADR 011, decisão 4](../adr/011-observability-stack.md)): as `Application`s `kube-prometheus-stack` e `loki` (donas de PVC) ganharam o mesmo finalizer e proteção de `depends_on` já usados para o órfão da ALB do LBC (ADR 010), mas não há garantia de ordem entre `Application`s-irmãs dentro do mesmo `helm_release` — um volume EBS pode, em teoria, ficar órfão se o pod do `ebs-csi-driver` for removido antes da poda de PVC terminar. Depois do `destroy`, confirme:
+⚠️ **Risco teórico, checado e não confirmado no primeiro ciclo real** (ver [ADR 011, decisão 4](../adr/011-observability-stack.md)): as `Application`s `kube-prometheus-stack` e `loki` (donas de PVC) ganharam o mesmo finalizer e proteção de `depends_on` já usados para o órfão da ALB do LBC (ADR 010), mas não há garantia de ordem entre `Application`s-irmãs dentro do mesmo `helm_release` — um volume EBS poderia, em teoria, ficar órfão se o pod do `ebs-csi-driver` fosse removido antes da poda de PVC terminar. Não aconteceu no primeiro `destroy` real desta fase, mas vale conferir de novo a cada sessão até o padrão se provar consistente:
 
 ```bash
 aws ec2 describe-volumes --profile cloudlab --region us-east-1 \
