@@ -125,3 +125,30 @@ prometheusOperator:
     limits:
       cpu: 200m
       memory: 256Mi
+  admissionWebhooks:
+    # Default (patch.enabled: true, deployment.enabled: false) generates the
+    # webhook's TLS cert via a pair of Helm hook Jobs
+    # (admission-create/admission-patch) that ArgoCD doesn't track as its
+    # own hooks -- found on the first real sync: the Application got stuck
+    # OutOfSync, retrying forever ("Job ... is missing, it might have been
+    # deleted"), because ArgoCD's sync/prune cycle races the Job's own
+    # hook-delete-policy. cert-manager (already running in this cluster
+    # since Phase 4) replaces the Job entirely with a self-signed in-cluster
+    # Issuer + Certificate -- no external ClusterIssuer/ACME involved, pure
+    # internal PKI for this one webhook. deployment: true switches the
+    # operator to serve the webhook via its own native TLS support (a
+    # second, persistent Deployment) instead of the one-shot patch Job.
+    # See docs/adr/011-observability-stack.md.
+    certManager:
+      enabled: true
+    patch:
+      enabled: false
+    deployment:
+      enabled: true
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi

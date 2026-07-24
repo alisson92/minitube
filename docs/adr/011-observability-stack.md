@@ -32,6 +32,8 @@ Dois charts oficiais separados (`grafana/loki` + `grafana/promtail`), não `loki
 
 **Densidade de pods:** `lokiCanary`, `chunksCache` e `resultsCache` vêm habilitados por padrão (3 pods a mais — DaemonSet + 2 StatefulSets de memcached) — todos desabilitados, sem valor real no volume de consulta de um lab e mais 3 pods num node group já denso (decisão 1).
 
+**Bug real, só exposto no primeiro deploy real (`helm template` não pega — é uma validação em runtime, não de render):** `loki-0` entrou em `CrashLoopBackOff` com `CONFIG ERROR: invalid compactor config: compactor.delete-request-store should be configured when retention is enabled`. O Loki 3.x passou a exigir um *delete request store* explícito quando `compactor.retention_enabled: true` está setado (decisão 2 já previa a retenção de 24h) — não basta habilitar a flag. Corrigido com `loki.compactor.delete_request_store: filesystem`, o mesmo backend já usado em `loki.storage.type`. Efeito em cascata: os 3 pods do `promtail` (DaemonSet) dependem do Service `loki` para enviar logs — com `loki-0` fora do ar, ficavam retentando `connection refused` indefinidamente; a falha de *readiness* reportada neles não era um bug próprio, era só a consequência visível deste.
+
 ### 3. EBS CSI driver via GitOps, não `aws_eks_addon`
 
 Nenhum provisionador de volume dinâmico existia (confirmado: nenhum `aws_eks_addon`, nenhuma `StorageClass`, grep vazio por `ebs`/`csi`/`storageclass` em todo `terraform/envs/lab/`) — necessário para os PVCs de Prometheus e Loki.
@@ -69,6 +71,12 @@ Disponibilidade via `kube_deployment_status_replicas_available{namespace="minitu
 ### 8. Grafana exposto via Ingress, `grafana.<domínio>`
 
 Já é uma URL-alvo documentada na arquitetura do projeto (`CLAUDE.md`). Mesmo padrão do `argocd.<domínio>` (ADR 008): TLS pelo certificado ACM wildcard persistente, mesma ALB compartilhada via `IngressGroup` (`group.name: minitube`), `group.order: "15"` — entre o ArgoCD (`10`, host-específico) e o catch-all da API (`20`) para não quebrar a prioridade de avaliação de regras já estabelecida.
+
+### 9. Bug real: o webhook do Prometheus Operator via Job de Helm trava o sync no ArgoCD
+
+A `Application kube-prometheus-stack` ficou presa em `OutOfSync` permanente, sem nenhum `Prometheus`/`Alertmanager` real chegando a ser criado pelo operator. `operationState.message` revelou a causa: `Resource batch/Job/kube-prometheus-stack-admission-create is missing, it might have been deleted. Retrying attempt #5`. Configuração padrão do chart (`prometheusOperator.admissionWebhooks.patch.enabled: true`, `deployment.enabled: false`) gera o certificado TLS do webhook de admissão via um par de Jobs de hook do Helm (`admission-create`/`admission-patch`, com `hook-delete-policy` própria) — o próprio `values.yaml` do chart já comenta a necessidade de anotá-los como hooks do ArgoCD (`argocd.argoproj.io/hook: PreSync`), mas isso não vem habilitado por padrão. Sem essa anotação, o ciclo de sync/prune do ArgoCD (mais o `retry` que este projeto já configura para esta Application, decisão análoga ao `cert-manager` da Fase 4) entra em corrida com o próprio ciclo de vida do Job, e o ArgoCD nunca considera o sync concluído.
+
+Corrigido eliminando os Jobs por completo, não anotando-os: `prometheusOperator.admissionWebhooks.certManager.enabled: true` (o cert-manager, já rodando desde a Fase 4, passa a gerar o certificado via um `Issuer`/`Certificate` internos, self-signed, sem depender do `ClusterIssuer` externo do Let's Encrypt) + `patch.enabled: false` (desliga os Jobs) + `deployment.enabled: true` (o operator passa a servir o webhook nativamente via um segundo `Deployment` persistente, `kube-prometheus-stack-operator-webhook`, em vez do padrão TLS-via-patch-Job). Confirmado com `helm template`: zero `Job`s gerados, 2 `Certificate`/2 `Issuer` (self-signed) no lugar. Custo: +1 pod (o novo Deployment do webhook) — aceito, é o preço de eliminar uma classe inteira de race condition com o ArgoCD, mesmo racional de custo-benefício já usado nas decisões de bug real das fases anteriores.
 
 ## Consequências
 

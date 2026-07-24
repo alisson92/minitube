@@ -25,6 +25,13 @@ loki:
     retention_period: 24h
   compactor:
     retention_enabled: true
+    # Modern Loki (3.x) uses a delete-request-store for retention instead of
+    # plain TTL expiry -- omitting this fails the pod at startup with
+    # "CONFIG ERROR: invalid compactor config: compactor.delete-request-store
+    # should be configured when retention is enabled" (found on the first
+    # real deploy, loki-0 stuck in CrashLoopBackOff). Same backend as
+    # loki.storage.type above.
+    delete_request_store: filesystem
 
 # deploymentMode: SingleBinary above doesn't zero these out by itself -- the
 # chart's own validation (templates/validate.yaml) fails the render if both
