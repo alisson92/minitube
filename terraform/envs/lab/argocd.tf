@@ -534,7 +534,17 @@ resource "helm_release" "argocd_apps" {
             prune    = true
             selfHeal = true
           }
-          syncOptions = ["CreateNamespace=true"]
+          # ServerSideApply=true is load-bearing, not a style choice: the
+          # Prometheus Operator CRDs (prometheuses/alertmanagers/etc.) this
+          # chart installs are large enough that client-side apply's
+          # kubectl.kubernetes.io/last-applied-configuration annotation
+          # exceeds Kubernetes' 262144-byte limit -- discovered on the first
+          # real sync (SyncFailed on every CRD, then every Prometheus/
+          # Alertmanager CR cascading with "no matches for kind ... ensure
+          # CRDs are installed first", since the CRDs never actually
+          # applied). Server-side apply doesn't use that annotation at all.
+          # See docs/adr/011-observability-stack.md.
+          syncOptions = ["CreateNamespace=true", "ServerSideApply=true"]
           retry = {
             limit = 5
             backoff = {
