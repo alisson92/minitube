@@ -1,5 +1,6 @@
 from kubernetes import client, config
 
+import s3_client
 from config import settings
 
 # In-cluster only: the API always runs as a pod (see gitops/app/deployment.yaml),
@@ -70,6 +71,14 @@ def get_job_status(video_id: str) -> str:
         job = _batch.read_namespaced_job(name=name, namespace=settings.job_namespace)
     except client.ApiException as exc:
         if exc.status == 404:
+            # The Job is transient by design (ttl_seconds_after_finished
+            # above) and gets garbage-collected by Kubernetes ~1h after
+            # finishing -- its absence doesn't mean the video doesn't exist.
+            # The HLS playlist in S3 is the durable source of truth for
+            # "transcoding succeeded" (it outlives the Job that produced
+            # it), so fall back to it before declaring the video not found.
+            if s3_client.hls_playlist_exists(video_id):
+                return "succeeded"
             return "not_found"
         raise
 
