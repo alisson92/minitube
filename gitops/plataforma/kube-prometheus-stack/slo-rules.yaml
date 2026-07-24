@@ -1,0 +1,33 @@
+# Minimum-viable SLOs for the "dia do jogo" dashboard (Phase 5 completion
+# criterion, CLAUDE.md) -- defined before the k6 load tests (Phase 6), per
+# the project's own phase table. See docs/adr/011-observability-stack.md.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: minitube-api-slo
+  namespace: minitube-platform
+  labels:
+    app.kubernetes.io/part-of: minitube
+spec:
+  groups:
+    - name: minitube-api-slo
+      rules:
+        - alert: APIAvailabilitySLOBreach
+          # Free from kube-state-metrics -- no app instrumentation needed.
+          expr: kube_deployment_status_replicas_available{namespace="minitube-app", deployment="api"} < 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "API sem réplicas disponíveis por mais de 5 minutos"
+        - alert: APILatencySLOBreach
+          # Requires app/api's /metrics (prometheus-fastapi-instrumentator,
+          # scraped via servicemonitor-api.yaml). 500ms is a starting point
+          # for a lab, not a validated SLA -- revisit with real k6 data in
+          # Phase 6.
+          expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler=~"/api.*"}[5m])) by (le)) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Latência p95 da API acima de 500ms por mais de 5 minutos"

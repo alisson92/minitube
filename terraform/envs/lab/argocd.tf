@@ -128,6 +128,9 @@ resource "helm_release" "argocd_project" {
           "https://aws.github.io/eks-charts",
           "https://kubernetes-sigs.github.io/external-dns/",
           "https://charts.jetstack.io",
+          "https://kubernetes-sigs.github.io/aws-ebs-csi-driver",
+          "https://prometheus-community.github.io/helm-charts",
+          "https://grafana.github.io/helm-charts",
         ]
         destinations = [
           {
@@ -216,6 +219,19 @@ resource "helm_release" "argocd_apps" {
   # -- it needs it to delete the argocd.<domain> record for the pruned
   # argocd-server Ingress, which would otherwise silently orphan a Route53
   # record pointing at an ALB that's about to be gone.
+  #
+  # Same reasoning extends to the ebs-csi-driver's managed-policy attachment
+  # and grafana's inline policy (Phase 5): the "kube-prometheus-stack" and
+  # "loki" Applications below own PVCs, and deleting a PVC only triggers a
+  # real EBS DeleteVolume call if the ebs-csi-driver controller pod is still
+  # alive *and* still authorized when that happens -- the exact same race
+  # class as the ALB orphan bug, just for EBS volumes instead of load
+  # balancers. Not yet confirmed to bite in practice (no live ordering
+  # guarantee exists between sibling Applications within this one release,
+  # same gap ADR-010 decision 2 fixed for the AppProject) -- this depends_on
+  # is the cheap, known-good half of the mitigation; watch for orphaned EBS
+  # volumes on the first real destroy cycle (see
+  # docs/adr/011-observability-stack.md).
   depends_on = [
     helm_release.argocd,
     helm_release.argocd_project,
@@ -228,6 +244,8 @@ resource "helm_release" "argocd_apps" {
     aws_route_table_association.public,
     aws_iam_role_policy.aws_load_balancer_controller,
     aws_iam_role_policy.external_dns,
+    aws_iam_role_policy_attachment.ebs_csi_driver,
+    aws_iam_role_policy.grafana,
   ]
 
   values = [yamlencode({
@@ -429,6 +447,178 @@ resource "helm_release" "argocd_apps" {
               maxDuration = "3m"
             }
           }
+        }
+      }
+
+      # Phase 5 (Observability): kube-prometheus-stack + Loki need a
+      # dynamic StorageClass for their PVCs -- installed the same way as the
+      # 3 add-ons above (multi-source Application), not via aws_eks_addon,
+      # to keep a single add-on installation mechanism in this repo. Only
+      # the controller needs an IRSA role (AWS API calls); the node
+      # DaemonSet only formats/mounts locally.
+      "ebs-csi-driver" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://kubernetes-sigs.github.io/aws-ebs-csi-driver"
+            chart          = "aws-ebs-csi-driver"
+            targetRevision = var.ebs_csi_driver_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/ebs-csi-driver/values.yaml"]
+              parameters = [
+                {
+                  name  = "controller.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+                  value = aws_iam_role.ebs_csi_driver.arn
+                },
+              ]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
+        }
+      }
+
+      "kube-prometheus-stack" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        # Owns PVCs (Prometheus/Alertmanager storage) -- same rationale as
+        # applications.app/platform above: prune them (triggering real EBS
+        # volume deletion) before this Application CR disappears, not after.
+        finalizers = ["resources-finalizer.argocd.argoproj.io"]
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://prometheus-community.github.io/helm-charts"
+            chart          = "kube-prometheus-stack"
+            targetRevision = var.kube_prometheus_stack_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/kube-prometheus-stack/values.yaml"]
+              parameters = [
+                {
+                  name  = "grafana.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+                  value = aws_iam_role.grafana.arn
+                },
+              ]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        # retry/backoff (not sync-waves) covers the PVCs racing the
+        # ebs-csi-driver Application above -- no ordering guarantee exists
+        # between sibling Applications, same reasoning as cert-manager's
+        # retry policy below for its ClusterIssuer.
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
+          retry = {
+            limit = 5
+            backoff = {
+              duration    = "10s"
+              factor      = 2
+              maxDuration = "3m"
+            }
+          }
+        }
+      }
+
+      "loki" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        # Owns a PVC (single-binary storage) -- same rationale as
+        # kube-prometheus-stack above.
+        finalizers = ["resources-finalizer.argocd.argoproj.io"]
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://grafana.github.io/helm-charts"
+            chart          = "loki"
+            targetRevision = var.loki_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/loki/values.yaml"]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
+          retry = {
+            limit = 5
+            backoff = {
+              duration    = "10s"
+              factor      = 2
+              maxDuration = "3m"
+            }
+          }
+        }
+      }
+
+      # No IRSA role (never calls the AWS API) and no PVC (positions file
+      # lives on the node's local filesystem, disposable) -- unlike the 3
+      # Applications above, needs neither helm.parameters nor a finalizer.
+      "promtail" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://grafana.github.io/helm-charts"
+            chart          = "promtail"
+            targetRevision = var.promtail_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/promtail/values.yaml"]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
         }
       }
     }

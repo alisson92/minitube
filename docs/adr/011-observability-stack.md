@@ -1,0 +1,82 @@
+# 011 — kube-prometheus-stack, Loki e EBS CSI driver via GitOps
+
+## Status
+
+Aceito
+
+## Contexto
+
+Fase 5 (Observabilidade) da tabela do `CLAUDE.md`: instalar `kube-prometheus-stack` e Loki via GitOps, com SLOs definidos antes dos testes de carga da Fase 6. O critério de conclusão documentado é explícito — "Dashboard 'dia do jogo' mostrando hit ratio do CDN, latência p95/p99, saturação e erros" — não um objetivo genérico de observabilidade, e isso molda várias das decisões abaixo (em especial 5 e 6).
+
+Nenhum dos componentes desta fase existia antes: não havia EBS CSI driver, StorageClass, IRSA role de Grafana, nem instrumentação de métricas na API. Quatro decisões de escopo foram fechadas com o operador antes da implementação; as demais foram técnicas, descobertas ao verificar cada chart e cada arquivo real do repositório (não especulativas).
+
+## Decisões
+
+### 1. Node sizing: `min = max = desired = 3`, sem Cluster Autoscaler
+
+O node group (`t3.medium` spot) estava em `desired=2, min=1, max=3`. O gargalo real para esta fase não é CPU/memória — sobra folga confortável mesmo com os 4 novos add-ons — é o limite de **17 pods/nó** do `t3.medium` via alocação de IP da VPC CNI (`(3 ENIs) × (6 IPs/ENI − 1) + 2 = 17`). Com os add-ons desta fase, o total de pods sobe apreciavelmente (ArgoCD + 3 add-ons da Fase 4 + kube-system + app + agora ebs-csi-driver + kube-prometheus-stack + Loki + promtail) — 2 nós (34 slots) não davam margem para rolling updates nem para o Job de transcodificação.
+
+Corrigido subindo `eks_node_desired_size`/`eks_node_min_size`/`eks_node_max_size` para `3` (51 slots), mantendo o tipo de instância (`t3.medium` spot — barato, alinhado ao princípio de custo controlado do projeto).
+
+**Por que `min = max = desired` em vez de só subir `desired`:** não existe Cluster Autoscaler nem Karpenter neste cluster. Sem um desses componentes observando pods `Pending` para decidir escalar, `min_size`/`max_size` diferentes de `desired_size` não têm efeito nenhum — são configuração morta, só limites de validação do node group. Fixar os três iguais deixa a intenção explícita: hoje é uma frota estática de 3 nós.
+
+**Adiado deliberadamente para a Fase 6:** um autoscaler de cluster de verdade, dimensionado com dado real de carga do k6 (o próprio `CLAUDE.md` já prevê HPA/KEDA nessa fase) — decidir isso hoje, sem carga real, seria engenharia antecipada.
+
+### 2. Loki: single-binary + filesystem via PVC, não distributed + S3
+
+Evita um bucket S3 novo e uma IRSA role adicional para um ambiente que é destruído ao final de cada sessão — sem ganho prático de armazenamento durável. Exige um provisionador de volume dinâmico, que não existia neste cluster (decisão 3).
+
+Dois charts oficiais separados (`grafana/loki` + `grafana/promtail`), não `loki-stack` (legado/depreciado upstream, sem version pinning granular por componente — quebraria o padrão já usado em todo `variables.tf`, onde cada componente tem sua própria `*_chart_version`).
+
+**Gotcha real, só exposto em `helm template`:** `deploymentMode: SingleBinary` sozinho não zera os componentes do modo *SimpleScalable* (`write`/`read`/`backend`, replicas: 3 por padrão) — o chart falha o render (`templates/validate.yaml`) se ambos os modos tiverem réplicas > 0 simultaneamente. Corrigido zerando os três explicitamente. Também exigiu `loki.useTestSchema: true` (o chart documenta esse toggle como o atalho oficial "for testing or playing around" quando não há backend de objeto real — exatamente este caso) em vez de escrever um `schemaConfig` manual sem benefício prático aqui.
+
+**Densidade de pods:** `lokiCanary`, `chunksCache` e `resultsCache` vêm habilitados por padrão (3 pods a mais — DaemonSet + 2 StatefulSets de memcached) — todos desabilitados, sem valor real no volume de consulta de um lab e mais 3 pods num node group já denso (decisão 1).
+
+### 3. EBS CSI driver via GitOps, não `aws_eks_addon`
+
+Nenhum provisionador de volume dinâmico existia (confirmado: nenhum `aws_eks_addon`, nenhuma `StorageClass`, grep vazio por `ebs`/`csi`/`storageclass` em todo `terraform/envs/lab/`) — necessário para os PVCs de Prometheus e Loki.
+
+Instalado como mais um subdiretório `gitops/plataforma/ebs-csi-driver/` + Application multi-source, o mesmo mecanismo já usado para `aws-load-balancer-controller`/`external-dns`/`cert-manager` na Fase 4, em vez de `aws_eks_addon` (a alternativa gerenciada pela AWS) — mantém um único padrão de instalação de add-on de plataforma no repositório, em vez de dois mecanismos concorrentes.
+
+IRSA role com a policy **gerenciada** oficial da AWS (`AmazonEBSCSIDriverPolicy`, via `aws_iam_role_policy_attachment`), não uma policy inline própria — é o padrão documentado pela AWS para este driver especificamente, diferente dos outros 3 add-ons de plataforma (todos com policy inline). Isso exigiu um novo `Sid` (`AttachEbsCsiManagedPolicy`) na policy inline única do permission set do operador (`terraform/bootstrap-iam/main.tf`) — `ManagePlatformIrsaRoles` só cobria `iam:PutRolePolicy`/`DeleteRolePolicy` (ações de policy inline), não `iam:AttachRolePolicy`/`DetachRolePolicy`. Escopado por `iam:PolicyARN` a exatamente essa policy gerenciada, para que o grant não possa ser usado para anexar nada mais amplo a uma role `platform-*`.
+
+Só o *controller* (que fala com a API da AWS) usa a IRSA role — o DaemonSet *node* só formata/monta localmente, sem chamadas AWS.
+
+### 4. Risco conhecido, não confirmado: órfão de volume EBS no destroy
+
+Mesma classe de bug já documentada 4 vezes para a ALB do LBC (ADR 008 itens 7-9 → ADR 009 decisões 5-6 → ADR 010): apagar uma `PVC` só dispara `DeleteVolume` de verdade se o pod controller do EBS CSI driver ainda estiver vivo e autorizado nesse instante. As Applications `kube-prometheus-stack` e `loki` (donas de PVC) ganharam o mesmo finalizer `resources-finalizer.argocd.argoproj.io` já usado por `app`/`platform`, e a policy do EBS CSI driver (junto com a do Grafana) entrou no `depends_on` de `helm_release.argocd_apps`, mesmo tratamento preventivo já dado à policy do LBC/external-dns no ADR 010. **Não há garantia de ordem entre Applications-irmãs dentro do mesmo `helm_release`** (o mesmo gap que o ADR 010 decisão 2 corrigiu para a `AppProject`) — se o pod do `ebs-csi-driver` for removido antes da poda de PVC das outras duas terminar, o volume pode ficar órfão na AWS. Não testado ainda nesta sessão de código; validar no primeiro ciclo `destroy` real (ver Consequências) e, se confirmado, aplicar o mesmo padrão de correção do ADR 010 (ordenação explícita).
+
+### 5. Grafana precisa de IRSA própria, com acesso de leitura ao CloudWatch
+
+Nenhum dos outros componentes desta fase faz chamadas à API da AWS — mas o critério de conclusão da Fase 5 exige hit ratio do CDN (CloudFront) e, na prática, erros da ALB (5xx), que são métricas `CloudWatch`, inexistentes no Prometheus. Sem essa role, o critério de conclusão da fase simplesmente não é cumprível.
+
+Policy inline com o escopo mínimo documentado pelo plugin CloudWatch do Grafana (`GetMetricData`, `GetMetricStatistics`, `ListMetrics`, `DescribeAlarmsForMetric`, `tag:GetResources`), não a managed policy `CloudWatchReadOnlyAccess` (larga demais — inclui Logs/X-Ray/Synthetics), mantendo o padrão de menor privilégio já usado por cert-manager/external-dns neste arquivo. `Resource = "*"` porque essas ações somente-leitura de métricas não suportam scoping por ARN.
+
+Nome do Service Account fixado explicitamente (`grafana`, via `grafana.serviceAccount.name` no `values.yaml`) em vez de depender do nome derivado do release — mesma razão de design já usada nos outros add-ons: a trust policy da IRSA role não pode depender de um nome que muda se a Application for renomeada no Terraform.
+
+### 6. A API precisa expor `/metrics` — sem isso não há latência p95/p99 real
+
+`app/api/main.py` só tinha `/api/healthz`, `/api/videos`, `/api/videos/{id}` (confirmado por leitura direta do arquivo antes de implementar) — nenhuma métrica de latência existia. Adicionada `prometheus-fastapi-instrumentator` (`app/api/requirements.txt`), instrumentando `/metrics` fora do prefixo `/api` de propósito: só é scrapeado internamente pelo `ServiceMonitor` via o Service `ClusterIP` (porta 8000), nunca passa pelo CloudFront/ALB (que só encaminham `/api/*`).
+
+**Bug real de dependências, só exposto no build:** `prometheus-fastapi-instrumentator==8.0.2` (a versão mais recente na hora da implementação) exige `starlette>=1.0.0`, mas `fastapi==0.115.6` (já pinada no projeto) pina `starlette<0.42.0,>=0.40.0` — `ResolutionImpossible` no `pip install`. Corrigido fixando `prometheus-fastapi-instrumentator==7.1.0` (exige `starlette<1.0.0,>=0.30.0`, compatível). Validado localmente antes do push: build da imagem, execução do servidor real (fora do container Docker padrão, que falha ao importar `jobs.py` fora de um Pod real — comportamento pré-existente, não desta mudança) confirmando `/metrics` respondendo com o histograma `http_request_duration_seconds_bucket{handler,method,le}`. Imagem publicada como `v0.1.3` no ECR.
+
+O Service `api` (`gitops/app/service.yaml`) ganhou uma porta nomeada (`http`) — `ServiceMonitor.spec.endpoints[].port` referencia porta por nome, não por número.
+
+### 7. SLO mínimo viável, não elaborado
+
+Disponibilidade via `kube_deployment_status_replicas_available{namespace="minitube-app", deployment="api"} < 1` — de graça via kube-state-metrics, sem depender da instrumentação da decisão 6. Latência via `histogram_quantile(0.95, ...)` sobre `http_request_duration_seconds_bucket`, com um limiar de 500ms **arbitrário** (ponto de partida para um lab, não um SLA validado) — revisar com dado real de carga na Fase 6. Nenhuma regra de saturação/erro elaborada nesta fase: CPU/memória de nó (node-exporter, já grátis) e erros 5xx (CloudWatch ALB, já coberto pela decisão 5) bastam para o critério de conclusão sem inventar SLOs sem dado real por trás.
+
+### 8. Grafana exposto via Ingress, `grafana.<domínio>`
+
+Já é uma URL-alvo documentada na arquitetura do projeto (`CLAUDE.md`). Mesmo padrão do `argocd.<domínio>` (ADR 008): TLS pelo certificado ACM wildcard persistente, mesma ALB compartilhada via `IngressGroup` (`group.name: minitube`), `group.order: "15"` — entre o ArgoCD (`10`, host-específico) e o catch-all da API (`20`) para não quebrar a prioridade de avaliação de regras já estabelecida.
+
+## Consequências
+
+- `terraform/bootstrap-iam/main.tf`: novo `Sid AttachEbsCsiManagedPolicy` na policy inline única do permission set do operador.
+- `terraform/envs/lab/variables.tf`: sizing `3/3/3`; 4 novas `*_chart_version` (ebs_csi_driver, kube_prometheus_stack, loki, promtail).
+- `terraform/envs/lab/iam-platform.tf`: 2 novas IRSA roles (`ebs_csi_driver`, `grafana`); `terraform/envs/lab/outputs.tf`: outputs correspondentes.
+- `terraform/envs/lab/argocd.tf`: `sourceRepos` do AppProject +3; 4 novas Applications multi-source (`ebs-csi-driver`, `kube-prometheus-stack`, `loki`, `promtail`); `depends_on` de `helm_release.argocd_apps` estendido às 2 novas policies IAM.
+- `gitops/plataforma/{ebs-csi-driver,kube-prometheus-stack,loki,promtail}/`: novos, seguindo o padrão de subdiretório por componente já estabelecido na Fase 4.
+- `app/api/main.py`, `app/api/requirements.txt`, `gitops/app/service.yaml`, `gitops/app/deployment.yaml`: instrumentação `/metrics`, porta nomeada, imagem `v0.1.3`.
+- `terraform/envs/lab/scripts/validate-observability.sh`, `docs/runbooks/validate-observability.md`: novos.
+- Risco da decisão 4 (órfão de volume EBS) fica em aberto até o primeiro ciclo `destroy` real confirmar ou descartar — se confirmado, é candidato a um ADR 012 próprio, no mesmo padrão do ADR 010.

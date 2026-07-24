@@ -1,0 +1,127 @@
+# Static values for the kube-prometheus-stack chart
+# (https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack),
+# version pinned via var.kube_prometheus_stack_chart_version in
+# terraform/envs/lab/argocd.tf. grafana.serviceAccount.annotations (the IRSA
+# role ARN) is injected dynamically by that same Application via
+# `helm.parameters` -- it isn't known until Terraform creates the role, so
+# it can't live here.
+
+# EKS's control plane (scheduler/controller-manager/etcd) is managed by AWS
+# and not reachable for scraping -- leaving these enabled (the chart
+# default, written for self-managed clusters) leaves their ServiceMonitors
+# permanently `down`, pure noise on a managed cluster.
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    # Discover ServiceMonitors/PrometheusRules from any namespace with any
+    # labels, not just ones carrying this release's `release: kube-prometheus-stack`
+    # label -- needed for gitops/app's future ServiceMonitor (minitube-app
+    # namespace) and this directory's own slo-rules.yaml/servicemonitor-api.yaml,
+    # none of which belong to this Helm release.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    ruleNamespaceSelector: {}
+    # This is a session-scoped lab, not long-term monitoring -- no reason to
+    # retain metrics beyond a single working session.
+    retention: 24h
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    # No storageSpec: silences/notification state don't need to survive a
+    # pod restart in an environment destroyed at the end of every session.
+
+grafana:
+  serviceAccount:
+    create: true
+    # Overridden explicitly -- see local.platform_service_accounts.grafana
+    # in terraform/envs/lab/iam-platform.tf for why this can't be left to
+    # the chart's release-name-derived default.
+    name: grafana
+  # Dashboards are provisioned as code via the sidecar (ConfigMaps labeled
+  # grafana_dashboard, ver terraform/envs/lab GitOps convention), not
+  # created/edited in the UI -- no reason to persist Grafana's own SQLite
+  # state across restarts.
+  persistence:
+    enabled: false
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.minitube-platform.svc.cluster.local:3100
+    - name: CloudWatch
+      type: cloudwatch
+      access: proxy
+      jsonData:
+        # "default" == the AWS SDK default credential chain, which resolves
+        # to this pod's IRSA role (aws_iam_role.grafana, envs/lab/iam-platform.tf)
+        # -- no static keys involved.
+        authType: default
+        defaultRegion: us-east-1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

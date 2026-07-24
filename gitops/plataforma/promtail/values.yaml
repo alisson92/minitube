@@ -1,0 +1,24 @@
+# Static values for the promtail chart
+# (https://github.com/grafana/helm-charts/tree/main/charts/promtail),
+# version pinned via var.promtail_chart_version in
+# terraform/envs/lab/argocd.tf. Ships every node's container logs to Loki --
+# Loki alone doesn't collect anything. No IRSA role: promtail only talks to
+# the in-cluster loki Service, never the AWS API.
+#
+# Promtail is upstream maintenance-mode (superseded by Grafana Alloy) but
+# remains the simplest, best-documented log agent for a single-binary Loki
+# -- fine for a lab, revisit if Alloy's docs mature.
+config:
+  clients:
+    # loki/values.yaml disables the gateway (gateway.enabled: false) -- talk
+    # directly to the singleBinary Service instead of the chart's default
+    # (http://loki-gateway/loki/api/v1/push).
+    - url: http://loki.minitube-platform.svc.cluster.local:3100/loki/api/v1/push
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi

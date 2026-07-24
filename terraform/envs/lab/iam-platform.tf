@@ -10,6 +10,14 @@ locals {
     aws_load_balancer_controller = "aws-load-balancer-controller"
     external_dns                 = "external-dns"
     cert_manager                 = "cert-manager"
+    # Chart's own default SA name, not overridden in
+    # gitops/plataforma/ebs-csi-driver/values.yaml.
+    ebs_csi_driver = "ebs-csi-controller-sa"
+    # Overridden explicitly via grafana.serviceAccount.name in
+    # gitops/plataforma/kube-prometheus-stack/values.yaml, instead of relying
+    # on the chart's release-name-derived default -- keeps this trust policy
+    # stable regardless of what the Application/release is named.
+    grafana = "grafana"
   }
 }
 
@@ -122,6 +130,78 @@ resource "aws_iam_role_policy" "cert_manager" {
       {
         Effect   = "Allow"
         Action   = "route53:ListHostedZonesByName"
+        Resource = "*"
+      },
+    ]
+  })
+}
+
+resource "aws_iam_role" "ebs_csi_driver" {
+  name = "${var.project}-platform-ebs-csi-irsa-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = aws_iam_openid_connect_provider.lab.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
+        StringLike   = { "${local.oidc_provider_url}:sub" = "system:serviceaccount:${local.platform_namespace}:${local.platform_service_accounts.ebs_csi_driver}" }
+      }
+    }]
+  })
+}
+
+# AWS-managed policy (the officially documented way to grant this driver),
+# not an inline policy like the other 3 add-ons above -- requires the
+# "AttachEbsCsiManagedPolicy" grant in terraform/bootstrap-iam/main.tf, which
+# only permits attaching this exact managed policy ARN.
+resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
+  role       = aws_iam_role.ebs_csi_driver.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+resource "aws_iam_role" "grafana" {
+  name = "${var.project}-platform-grafana-irsa-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = aws_iam_openid_connect_provider.lab.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
+        StringLike   = { "${local.oidc_provider_url}:sub" = "system:serviceaccount:${local.platform_namespace}:${local.platform_service_accounts.grafana}" }
+      }
+    }]
+  })
+}
+
+# Read-only access for the CloudWatch datasource
+# (gitops/plataforma/kube-prometheus-stack/values.yaml) -- CDN hit ratio
+# (CloudFront) and ALB error rate live in CloudWatch, not Prometheus. No
+# CloudWatchReadOnlyAccess managed policy here (too broad, e.g. includes
+# Logs/X-Ray/Synthetics) -- scoped to exactly what the Grafana CloudWatch
+# plugin's docs list as required. These read-only metric actions don't
+# support resource-level scoping, hence Resource = "*".
+resource "aws_iam_role_policy" "grafana" {
+  name = "${var.project}-platform-grafana-policy"
+  role = aws_iam_role.grafana.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:GetMetricData",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics",
+          "cloudwatch:DescribeAlarmsForMetric",
+          "tag:GetResources",
+        ]
         Resource = "*"
       },
     ]

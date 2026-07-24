@@ -299,6 +299,29 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
         ]
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-platform-*"
       },
+      {
+        # The EBS CSI driver's IRSA role (envs/lab/iam-platform.tf) attaches
+        # the AWS-managed AmazonEBSCSIDriverPolicy instead of an inline
+        # policy -- the AWS-documented way to grant this driver, unlike the
+        # other platform add-ons above which all use inline policies.
+        # ManagePlatformIrsaRoles only covers inline-policy actions
+        # (PutRolePolicy/DeleteRolePolicy), not managed-policy attach/detach.
+        # The iam:PolicyARN condition pins this to exactly that one managed
+        # policy, so this grant can't be used to attach anything broader
+        # (e.g. AdministratorAccess) to a platform-* role.
+        Sid    = "AttachEbsCsiManagedPolicy"
+        Effect = "Allow"
+        Action = [
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+        ]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-platform-*"
+        Condition = {
+          StringEquals = {
+            "iam:PolicyARN" = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+          }
+        }
+      },
     ]
   })
 }
