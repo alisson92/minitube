@@ -1,0 +1,49 @@
+# Routes grafana.<domain> straight to the shared ALB, same pattern as
+# gitops/plataforma/argocd/ingress.yaml -- an internal operational tool,
+# doesn't need CloudFront edge caching. Shares the same IngressGroup
+# (group.name: minitube) so the aws-load-balancer-controller provisions a
+# single ALB, not one per Ingress. See docs/adr/011-observability-stack.md.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: minitube-platform
+  labels:
+    app.kubernetes.io/part-of: minitube
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: minitube
+    # Lower number = higher priority, evaluated before any catch-all rule.
+    # Between argocd (10) and the app's catch-all (20) -- both other
+    # host-specific and host-less rules already reserve those two values.
+    alb.ingress.kubernetes.io/group.order: "15"
+    # Must match every other member of the group exactly -- see
+    # terraform/envs/lab/cloudfront.tf's data "aws_lb" comment for why this
+    # is a fixed, predictable name rather than an auto-generated one.
+    alb.ingress.kubernetes.io/load-balancer-name: minitube-app
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # Persistent ACM wildcard cert from terraform/bootstrap/dns.tf -- safe to
+    # hardcode, same pattern as var.operator_role_arn. Re-fetch via
+    # `terraform output -raw acm_certificate_arn` (bootstrap/) if reissued.
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:us-east-1:479213212405:certificate/3aec10c8-c0e3-4376-bbc6-943f17d3298d"
+    external-dns.alpha.kubernetes.io/hostname: grafana.minitube.projetodevops.com.br
+spec:
+  ingressClassName: alb
+  rules:
+    - host: grafana.minitube.projetodevops.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # Derived from the Helm release name -- must stay
+                # "kube-prometheus-stack" for this Service name to be
+                # predictable. If the Application's map key in argocd.tf
+                # ever changes, this breaks silently (404 from the ALB, not
+                # a Terraform error).
+                name: kube-prometheus-stack-grafana
+                port:
+                  number: 80

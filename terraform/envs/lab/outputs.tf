@@ -83,6 +83,22 @@ output "cert_manager_role_arn" {
   value       = aws_iam_role.cert_manager.arn
 }
 
+output "ebs_csi_driver_role_arn" {
+  description = "ARN of the IRSA role for the aws-ebs-csi-driver add-on"
+  value       = aws_iam_role.ebs_csi_driver.arn
+}
+
+output "grafana_role_arn" {
+  description = "ARN of the IRSA role for Grafana's CloudWatch datasource"
+  value       = aws_iam_role.grafana.arn
+}
+
+output "grafana_admin_password" {
+  description = "Grafana admin password (terraform-generated, stable across every ArgoCD sync -- see docs/adr/011-observability-stack.md decision 12). Read via `terraform output -raw grafana_admin_password`, not `kubectl get secret`."
+  value       = random_password.grafana_admin.result
+  sensitive   = true
+}
+
 output "cloudfront_distribution_id" {
   description = "ID of the CloudFront distribution in front of the video bucket and the ALB, used by the cache invalidation and validation scripts"
   value       = aws_cloudfront_distribution.app.id

@@ -1,0 +1,93 @@
+# Static values for the loki chart
+# (https://github.com/grafana/loki/tree/main/production/helm/loki),
+# version pinned via var.loki_chart_version in terraform/envs/lab/argocd.tf.
+# SingleBinary mode with filesystem storage on a PVC -- not the
+# SimpleScalable/distributed mode with S3 backend, to avoid a new bucket +
+# IRSA role for a lab environment torn down every session. No IRSA role at
+# all: unlike the other add-ons, Loki never calls the AWS API.
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false # single-tenant lab, no need for per-tenant isolation
+  commonConfig:
+    replication_factor: 1 # matches singleBinary.replicas: 1 below
+  storage:
+    type: filesystem
+  # The chart requires a real loki.schemaConfig for production use, but
+  # explicitly documents this toggle as the intended shortcut "for testing
+  # or playing around" -- exactly this lab's use case (single-binary,
+  # filesystem, torn down every session). Avoids hand-writing a
+  # schema_config (index store/period) with no real benefit here.
+  useTestSchema: true
+  limits_config:
+    # Session-scoped lab, not long-term log storage -- matches
+    # prometheus.prometheusSpec.retention in ../kube-prometheus-stack/values.yaml.
+    retention_period: 24h
+  compactor:
+    retention_enabled: true
+    # Modern Loki (3.x) uses a delete-request-store for retention instead of
+    # plain TTL expiry -- omitting this fails the pod at startup with
+    # "CONFIG ERROR: invalid compactor config: compactor.delete-request-store
+    # should be configured when retention is enabled" (found on the first
+    # real deploy, loki-0 stuck in CrashLoopBackOff). Same backend as
+    # loki.storage.type above.
+    delete_request_store: filesystem
+
+# deploymentMode: SingleBinary above doesn't zero these out by itself -- the
+# chart's own validation (templates/validate.yaml) fails the render if both
+# singleBinary and these SimpleScalable-mode targets have replicas > 0.
+write:
+  replicas: 0
+read:
+  replicas: 0
+backend:
+  replicas: 0
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClass: gp3
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Grafana talks directly to the `loki` Service (ClusterIP, in-cluster) --
+# the gateway (nginx reverse proxy in front of Loki, meant for
+# authenticating external/multi-tenant access) is unnecessary here and
+# would just be one more pod.
+gateway:
+  enabled: false
+
+# Each is a separate memcached StatefulSet (2 more pods) -- real value at
+# production query volume, negligible for a lab. Consistent with the
+# pod-density budget in docs/adr/011-observability-stack.md.
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+
+# Loki's own self-monitoring stack (a second Prometheus + Grafana Agent)
+# would be redundant with the kube-prometheus-stack already being deployed
+# alongside it.
+monitoring:
+  selfMonitoring:
+    enabled: false
+  serviceMonitor:
+    enabled: false
+  dashboards:
+    enabled: false
+
+# loki-canary: a synthetic log-generation/verification DaemonSet, useful for
+# ongoing production monitoring -- unnecessary overhead for a lab, and one
+# more pod-slot per node on an already pod-dense t3.medium (see
+# docs/adr/011-observability-stack.md).
+test:
+  enabled: false
+lokiCanary:
+  enabled: false

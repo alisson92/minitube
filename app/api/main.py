@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
+from prometheus_fastapi_instrumentator import Instrumentator
 
 import jobs
 import s3_client
@@ -40,3 +41,9 @@ def get_video_status(video_id: str):
 
 
 app.include_router(router)
+
+# Exposed at /metrics (root, outside the /api prefix) -- only scraped
+# in-cluster by the Prometheus ServiceMonitor via the Service's ClusterIP,
+# never through CloudFront/the ALB (which only forward /api/*), so the
+# /api-prefix constraint above doesn't apply here.
+Instrumentator().instrument(app).expose(app)

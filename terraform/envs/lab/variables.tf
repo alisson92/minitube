@@ -57,19 +57,19 @@ variable "eks_node_instance_types" {
 }
 
 variable "eks_node_desired_size" {
-  description = "Desired number of worker nodes in the spot node group"
+  description = "Desired number of worker nodes in the spot node group. Fixed equal to min/max (no Cluster Autoscaler/Karpenter yet, so a wider range has no effect) -- sized for 17 pods/node (t3.medium's VPC CNI ENI-IP limit, the real bottleneck here, not CPU/memory) to cover Phase 5's steady-state pod count with headroom. Revisit once a cluster autoscaler exists (Phase 6), driven by real k6 load data."
   type        = number
-  default     = 2
+  default     = 3
 }
 
 variable "eks_node_min_size" {
-  description = "Minimum number of worker nodes in the spot node group"
+  description = "Minimum number of worker nodes in the spot node group. Equal to desired_size -- see its description."
   type        = number
-  default     = 1
+  default     = 3
 }
 
 variable "eks_node_max_size" {
-  description = "Maximum number of worker nodes in the spot node group"
+  description = "Maximum number of worker nodes in the spot node group. Equal to desired_size -- see its description."
   type        = number
   default     = 3
 }
@@ -120,4 +120,28 @@ variable "cert_manager_chart_version" {
   description = "Pinned version of the cert-manager Helm chart (https://artifacthub.io/packages/helm/cert-manager/cert-manager, repo https://charts.jetstack.io). Keep the leading 'v' -- the chart's own version tags use it."
   type        = string
   default     = "v1.21.0"
+}
+
+variable "ebs_csi_driver_chart_version" {
+  description = "Pinned version of the aws-ebs-csi-driver Helm chart (https://artifacthub.io/packages/helm/aws-ebs-csi-driver/aws-ebs-csi-driver, repo https://kubernetes-sigs.github.io/aws-ebs-csi-driver). Check for a newer stable release before bumping."
+  type        = string
+  default     = "2.63.0"
+}
+
+variable "kube_prometheus_stack_chart_version" {
+  description = "Pinned version of the kube-prometheus-stack Helm chart (https://artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack, repo https://prometheus-community.github.io/helm-charts). Check for a newer stable release before bumping."
+  type        = string
+  default     = "87.19.0"
+}
+
+variable "loki_chart_version" {
+  description = "Pinned version of the loki Helm chart (https://artifacthub.io/packages/helm/grafana/loki, repo https://grafana.github.io/helm-charts), deployed in SingleBinary mode with filesystem storage. Check for a newer stable release before bumping."
+  type        = string
+  default     = "7.1.0"
+}
+
+variable "promtail_chart_version" {
+  description = "Pinned version of the promtail Helm chart (https://artifacthub.io/packages/helm/grafana/promtail, repo https://grafana.github.io/helm-charts). Promtail is upstream maintenance-mode (superseded by Grafana Alloy) but remains the simplest, best-documented log agent for a single-binary Loki -- fine for a lab, revisit if Alloy's docs mature."
+  type        = string
+  default     = "6.17.1"
 }

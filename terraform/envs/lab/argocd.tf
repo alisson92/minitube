@@ -5,6 +5,25 @@ locals {
   gitops_revision    = var.argocd_gitops_revision
 }
 
+# The kube-prometheus-stack chart auto-generates Grafana's admin password
+# (randAlphaNum in its own Secret template) whenever grafana.adminPassword
+# is left unset -- fine under a real `helm install`/`upgrade` (Helm's own
+# release state keeps the value stable across upgrades), but NOT under
+# ArgoCD: the Application here is rendered via a stateless `helm template`
+# on every sync (no lookup against the live Secret), so a fresh random
+# password got baked in and re-applied on every single sync, while
+# Grafana's live pod only reads the secret once at startup -- the password
+# a `kubectl get secret` shows and the one actually active in Grafana's
+# already-running pod silently drifted apart. Confirmed on this session's
+# first real login attempt: the freshly-fetched secret didn't work. Fixed
+# by generating the password once here, in real Terraform state, and
+# injecting it via helm.parameters (same mechanism as the IRSA role ARNs
+# below) -- stable across every sync, because it isn't re-derived by the
+# chart at all anymore. See docs/adr/011-observability-stack.md.
+resource "random_password" "grafana_admin" {
+  length  = 24
+  special = false # kept alphanumeric -- avoids any shell/YAML-escaping surprises when read back via `terraform output`
+}
 
 # EKS access entries return success from CreateAccessEntry/AssociateAccessPolicy
 # in ~1s, but the control plane's authorizer takes some extra seconds to
@@ -128,6 +147,9 @@ resource "helm_release" "argocd_project" {
           "https://aws.github.io/eks-charts",
           "https://kubernetes-sigs.github.io/external-dns/",
           "https://charts.jetstack.io",
+          "https://kubernetes-sigs.github.io/aws-ebs-csi-driver",
+          "https://prometheus-community.github.io/helm-charts",
+          "https://grafana.github.io/helm-charts",
         ]
         destinations = [
           {
@@ -216,6 +238,19 @@ resource "helm_release" "argocd_apps" {
   # -- it needs it to delete the argocd.<domain> record for the pruned
   # argocd-server Ingress, which would otherwise silently orphan a Route53
   # record pointing at an ALB that's about to be gone.
+  #
+  # Same reasoning extends to the ebs-csi-driver's managed-policy attachment
+  # and grafana's inline policy (Phase 5): the "kube-prometheus-stack" and
+  # "loki" Applications below own PVCs, and deleting a PVC only triggers a
+  # real EBS DeleteVolume call if the ebs-csi-driver controller pod is still
+  # alive *and* still authorized when that happens -- the exact same race
+  # class as the ALB orphan bug, just for EBS volumes instead of load
+  # balancers. Not yet confirmed to bite in practice (no live ordering
+  # guarantee exists between sibling Applications within this one release,
+  # same gap ADR-010 decision 2 fixed for the AppProject) -- this depends_on
+  # is the cheap, known-good half of the mitigation; watch for orphaned EBS
+  # volumes on the first real destroy cycle (see
+  # docs/adr/011-observability-stack.md).
   depends_on = [
     helm_release.argocd,
     helm_release.argocd_project,
@@ -228,6 +263,8 @@ resource "helm_release" "argocd_apps" {
     aws_route_table_association.public,
     aws_iam_role_policy.aws_load_balancer_controller,
     aws_iam_role_policy.external_dns,
+    aws_iam_role_policy_attachment.ebs_csi_driver,
+    aws_iam_role_policy.grafana,
   ]
 
   values = [yamlencode({
@@ -429,6 +466,192 @@ resource "helm_release" "argocd_apps" {
               maxDuration = "3m"
             }
           }
+        }
+      }
+
+      # Phase 5 (Observability): kube-prometheus-stack + Loki need a
+      # dynamic StorageClass for their PVCs -- installed the same way as the
+      # 3 add-ons above (multi-source Application), not via aws_eks_addon,
+      # to keep a single add-on installation mechanism in this repo. Only
+      # the controller needs an IRSA role (AWS API calls); the node
+      # DaemonSet only formats/mounts locally.
+      "ebs-csi-driver" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://kubernetes-sigs.github.io/aws-ebs-csi-driver"
+            chart          = "aws-ebs-csi-driver"
+            targetRevision = var.ebs_csi_driver_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/ebs-csi-driver/values.yaml"]
+              parameters = [
+                {
+                  name  = "controller.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+                  value = aws_iam_role.ebs_csi_driver.arn
+                },
+              ]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
+        }
+      }
+
+      "kube-prometheus-stack" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        # Owns PVCs (Prometheus/Alertmanager storage) -- same rationale as
+        # applications.app/platform above: prune them (triggering real EBS
+        # volume deletion) before this Application CR disappears, not after.
+        finalizers = ["resources-finalizer.argocd.argoproj.io"]
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://prometheus-community.github.io/helm-charts"
+            chart          = "kube-prometheus-stack"
+            targetRevision = var.kube_prometheus_stack_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/kube-prometheus-stack/values.yaml"]
+              parameters = [
+                {
+                  name  = "grafana.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+                  value = aws_iam_role.grafana.arn
+                },
+                {
+                  name  = "grafana.adminPassword"
+                  value = random_password.grafana_admin.result
+                },
+              ]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        # retry/backoff (not sync-waves) covers the PVCs racing the
+        # ebs-csi-driver Application above -- no ordering guarantee exists
+        # between sibling Applications, same reasoning as cert-manager's
+        # retry policy below for its ClusterIssuer.
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          # ServerSideApply=true is load-bearing, not a style choice: the
+          # Prometheus Operator CRDs (prometheuses/alertmanagers/etc.) this
+          # chart installs are large enough that client-side apply's
+          # kubectl.kubernetes.io/last-applied-configuration annotation
+          # exceeds Kubernetes' 262144-byte limit -- discovered on the first
+          # real sync (SyncFailed on every CRD, then every Prometheus/
+          # Alertmanager CR cascading with "no matches for kind ... ensure
+          # CRDs are installed first", since the CRDs never actually
+          # applied). Server-side apply doesn't use that annotation at all.
+          # See docs/adr/011-observability-stack.md.
+          syncOptions = ["CreateNamespace=true", "ServerSideApply=true"]
+          retry = {
+            limit = 5
+            backoff = {
+              duration    = "10s"
+              factor      = 2
+              maxDuration = "3m"
+            }
+          }
+        }
+      }
+
+      "loki" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        # Owns a PVC (single-binary storage) -- same rationale as
+        # kube-prometheus-stack above.
+        finalizers = ["resources-finalizer.argocd.argoproj.io"]
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://grafana.github.io/helm-charts"
+            chart          = "loki"
+            targetRevision = var.loki_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/loki/values.yaml"]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
+          retry = {
+            limit = 5
+            backoff = {
+              duration    = "10s"
+              factor      = 2
+              maxDuration = "3m"
+            }
+          }
+        }
+      }
+
+      # No IRSA role (never calls the AWS API) and no PVC (positions file
+      # lives on the node's local filesystem, disposable) -- unlike the 3
+      # Applications above, needs neither helm.parameters nor a finalizer.
+      "promtail" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://grafana.github.io/helm-charts"
+            chart          = "promtail"
+            targetRevision = var.promtail_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/promtail/values.yaml"]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
         }
       }
     }

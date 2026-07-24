@@ -1,0 +1,30 @@
+# Static values for the aws-ebs-csi-driver chart
+# (https://github.com/kubernetes-sigs/aws-ebs-csi-driver/tree/master/charts/aws-ebs-csi-driver),
+# version pinned via var.ebs_csi_driver_chart_version in
+# terraform/envs/lab/argocd.tf. controller.serviceAccount.annotations (the
+# IRSA role ARN) is injected dynamically by that same Application via
+# `helm.parameters` -- note the nested `controller.` prefix, different from
+# the top-level `serviceAccount.*` used by the other platform add-ons. Only
+# the controller talks to the AWS API (CreateVolume/AttachVolume/...); the
+# node DaemonSet only mounts/formats locally and needs no IRSA role.
+controller:
+  replicaCount: 1 # chart default is 2 -- 1 is enough for a lab, saves a pod slot
+  serviceAccount:
+    create: true
+    name: ebs-csi-controller-sa
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+node:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi

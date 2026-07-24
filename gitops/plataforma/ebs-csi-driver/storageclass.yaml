@@ -1,0 +1,12 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  labels:
+    app.kubernetes.io/part-of: minitube
+provisioner: ebs.csi.aws.com
+# Delays volume creation until a pod actually needs it, so the scheduler can
+# pick the AZ -- EBS volumes are AZ-local, and this cluster spans 2 AZs.
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  type: gp3
