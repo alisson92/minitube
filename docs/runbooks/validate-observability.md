@@ -25,6 +25,14 @@ AWS_PROFILE=cloudlab terraform apply
 AWS_PROFILE=cloudlab ./scripts/validate-observability.sh
 ```
 
+⚠️ **Se `kube-prometheus-stack` ficar oscilando entre `Progressing`/`Degraded` (nunca `Healthy`), com os CRs `Prometheus`/`Alertmanager` existindo mas sem `StatefulSet` real criado** (ver [ADR 011, decisão 11](../adr/011-observability-stack.md)): o operator do Prometheus só descobre quais CRDs existem **na inicialização** do pod. Se ele tiver subido antes das CRDs (comum em `apply`s com retries/troubleshooting ao vivo, não esperado num `apply` limpo do zero), ele nunca vai reconhecer `Prometheus`/`Alertmanager` sozinho — precisa reiniciar:
+
+```bash
+kubectl -n minitube-platform rollout restart deployment/kube-prometheus-stack-operator
+```
+
+Os `StatefulSet`s devem aparecer em segundos depois disso.
+
 ⚠️ **Dê tempo ao ArgoCD antes de rodar o script.** As 4 novas `Application`s (em especial `kube-prometheus-stack`, que traz CRDs do Prometheus Operator) podem levar alguns minutos para sincronizar e ficarem `Healthy` depois do primeiro `apply` num ambiente novo — se o script falhar na primeira checagem (PVCs `Bound`), confira `kubectl -n argocd get applications` antes de assumir um bug real.
 
 ## Como acessar a UI do Grafana
