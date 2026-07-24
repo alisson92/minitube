@@ -91,10 +91,14 @@ overall=0
 # (a) PVCs bound -- proves the EBS CSI driver (new this phase) provisioned
 # real EBS volumes, not just that the StorageClass object exists.
 pvcs_bound() {
-  local not_bound
-  not_bound=$(kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" get pvc \
-    -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}' 2>/dev/null \
-    | awk '$2 != "Bound"')
+  local phases not_bound
+  phases=$(kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" get pvc \
+    -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}' 2>/dev/null)
+  # Zero PVCs is not a pass -- it means kube-prometheus-stack/loki never
+  # synced (e.g. their Applications are stuck Unknown), not that there's
+  # nothing to wait for.
+  [[ -n "$phases" ]] || return 1
+  not_bound=$(awk '$2 != "Bound"' <<< "$phases")
   [[ -z "$not_bound" ]]
 }
 run_check "All PVCs in ${PLATFORM_NAMESPACE} reach Bound (up to ${PVC_TIMEOUT_SECONDS}s)" \
