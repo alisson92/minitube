@@ -42,12 +42,14 @@ Os `StatefulSet`s devem aparecer em segundos depois disso.
 open "https://grafana.minitube.projetodevops.com.br"
 ```
 
-Usuário `admin`, senha inicial (regenerada a cada sessão, já que `envs/lab` — e o Grafana com ele — é recriado do zero):
+Usuário `admin`, senha gerada uma vez por sessão pelo Terraform (regenerada só quando `envs/lab` é recriado do zero, **não** a cada sync do ArgoCD):
 
 ```bash
-aws eks update-kubeconfig --region us-east-1 --name minitube-lab --profile cloudlab
-kubectl -n minitube-platform get secret kube-prometheus-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
+cd terraform/envs/lab
+AWS_PROFILE=cloudlab terraform output -raw grafana_admin_password; echo
 ```
+
+⚠️ **Não use `kubectl get secret kube-prometheus-stack-grafana` para isso** (ver [ADR 011, decisão 12](../adr/011-observability-stack.md)) — o chart gera essa senha via `randAlphaNum` sempre que o Helm renderiza o template, e como o ArgoCD renderiza via `helm template` sem estado a cada sync (não um `helm upgrade` de verdade), cada sync gravava um valor novo no Secret enquanto o pod do Grafana já em execução continuava com a senha antiga em memória — os dois valores divergiam silenciosamente. A senha agora é gerada uma única vez em estado real do Terraform e injetada via `helm.parameters`, o que faz o Secret também ficar estável — mas a fonte de verdade é o `terraform output`, não o Secret.
 
 ## Como funciona o script de validação
 

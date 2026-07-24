@@ -93,6 +93,12 @@ output "grafana_role_arn" {
   value       = aws_iam_role.grafana.arn
 }
 
+output "grafana_admin_password" {
+  description = "Grafana admin password (terraform-generated, stable across every ArgoCD sync -- see docs/adr/011-observability-stack.md decision 12). Read via `terraform output -raw grafana_admin_password`, not `kubectl get secret`."
+  value       = random_password.grafana_admin.result
+  sensitive   = true
+}
+
 output "cloudfront_distribution_id" {
   description = "ID of the CloudFront distribution in front of the video bucket and the ALB, used by the cache invalidation and validation scripts"
   value       = aws_cloudfront_distribution.app.id

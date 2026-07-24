@@ -5,6 +5,25 @@ locals {
   gitops_revision    = var.argocd_gitops_revision
 }
 
+# The kube-prometheus-stack chart auto-generates Grafana's admin password
+# (randAlphaNum in its own Secret template) whenever grafana.adminPassword
+# is left unset -- fine under a real `helm install`/`upgrade` (Helm's own
+# release state keeps the value stable across upgrades), but NOT under
+# ArgoCD: the Application here is rendered via a stateless `helm template`
+# on every sync (no lookup against the live Secret), so a fresh random
+# password got baked in and re-applied on every single sync, while
+# Grafana's live pod only reads the secret once at startup -- the password
+# a `kubectl get secret` shows and the one actually active in Grafana's
+# already-running pod silently drifted apart. Confirmed on this session's
+# first real login attempt: the freshly-fetched secret didn't work. Fixed
+# by generating the password once here, in real Terraform state, and
+# injecting it via helm.parameters (same mechanism as the IRSA role ARNs
+# below) -- stable across every sync, because it isn't re-derived by the
+# chart at all anymore. See docs/adr/011-observability-stack.md.
+resource "random_password" "grafana_admin" {
+  length  = 24
+  special = false # kept alphanumeric -- avoids any shell/YAML-escaping surprises when read back via `terraform output`
+}
 
 # EKS access entries return success from CreateAccessEntry/AssociateAccessPolicy
 # in ~1s, but the control plane's authorizer takes some extra seconds to
@@ -516,6 +535,10 @@ resource "helm_release" "argocd_apps" {
                 {
                   name  = "grafana.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
                   value = aws_iam_role.grafana.arn
+                },
+                {
+                  name  = "grafana.adminPassword"
+                  value = random_password.grafana_admin.result
                 },
               ]
             }
