@@ -142,6 +142,26 @@ Executado com `PEAK_RATE=400` (default), instância `t3.small` na subnet privada
 
 **Isso reverte a conclusão precipitada da execução pós-fix anterior** ("este resultado derruba HPA baseado em CPU") — aquele resultado vinha de um teste que abortou cedo demais (91s, CPU nunca passou de 8,3%) por ruído de rede do cliente local, antes de a carga real chegar perto de saturar qualquer coisa. Com o ruído removido (EC2) e o teste rodando tempo suficiente para atingir carga real, **CPU é exatamente o sinal que sobe primeiro e no lugar certo (o pod, não o node)** — a resposta mais simples (HPA por CPU, ou aumentar `--workers`/o limite de CPU da réplica) volta a ser a candidata correta.
 
-**Decisão de mitigação (HPA vs. Cluster Autoscaler/Karpenter) agora tem dado real para se apoiar:** HPA baseado em CPU do pod `api` é a mitigação indicada — os nodes têm folga de sobra, então Cluster Autoscaler/Karpenter não resolveria nada sozinho aqui (só passaria a fazer sentido se o HPA algum dia escalasse réplicas o suficiente para esgotar os 3 nodes atuais, o que está longe de acontecer com a folga observada). Ainda não implementado — próximo passo combinado com o operador.
+**Decisão de mitigação (HPA vs. Cluster Autoscaler/Karpenter) agora tem dado real para se apoiar:** HPA baseado em CPU do pod `api` é a mitigação indicada — os nodes têm folga de sobra, então Cluster Autoscaler/Karpenter não resolveria nada sozinho aqui (só passaria a fazer sentido se o HPA algum dia escalasse réplicas o suficiente para esgotar os 3 nodes atuais, o que está longe de acontecer com a folga observada).
 
 Instância EC2 terminada ao final do teste (`trap cleanup EXIT`), confirmado no próprio log do script (`Cleaning up: terminating i-0af14f1a8b8316d5c`).
+
+## Resultado da execução via EC2, pós-HPA (2026-07-25) — o mesmo teste que abortava agora completa limpo
+
+HPA implementado (`docs/adr/012-hpa-cpu-autoscaling.md`): metrics-server via GitOps, `HorizontalPodAutoscaler` no Deployment `api` (`minReplicas: 2`, `maxReplicas: 6`, `averageUtilization: 70` de CPU), `PodDisruptionBudget` (`minAvailable: 1`), `ignoreDifferences` em `/spec/replicas` na Application `app` para o `selfHeal` do ArgoCD parar de brigar com o HPA.
+
+Reexecutado `AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh` com **exatamente os mesmos parâmetros** do teste anterior (`PEAK_RATE=400`, mesmo vídeo, mesma instância `t3.small`). Resultado:
+
+- **O teste completou os ~17 minutos inteiros — não abortou.** Antes abortava em ~6m32s.
+- `http_req_duration{endpoint:api}`: `p(95)=48.16ms` — contra `p(95)=1.19s`/`max=2.95s` de antes. Threshold (`p(95)<1000`) passou limpo.
+- `http_req_failed`: **0,00%** (1 falha isolada em 4.250.363 requisições — ruído desprezível, não um padrão).
+- Volume total bem maior que antes por ter completado o teste inteiro: 4.250.363 requisições, pico de 4166,5 req/s combinado (viewers + api).
+
+**Confirmado via Prometheus, na janela exata do teste (~01:03–01:21 UTC), que o HPA é a causa da melhora, não coincidência:**
+- **Réplicas escalaram de 2 → 3 → 5 → 6** acompanhando a CPU agregada subindo — chegou ao teto de `maxReplicas: 6` durante o estágio de pico (`PEAK_RATE=400` sustentado) e segurou ali.
+- **CPU agregada de todos os pods `api` chegou a ~2,3 cores no pico** — distribuída entre 6 réplicas (~380m cada, folga confortável abaixo do `limits.cpu: 500m` por pod que saturava sozinho antes) — nunca throttlou.
+- CPU caiu para perto de zero assim que o teste terminou, confirmando que o consumo acompanhou a carga real, não outro processo.
+
+**Conclusão: a mitigação funcionou exatamente como o dado da execução anterior previa.** O gargalo de CPU de uma réplica única foi resolvido distribuindo a carga entre múltiplas réplicas, dentro da folga de CPU dos nodes já confirmada.
+
+**Isso não encontrou um novo teto de capacidade** — só confirmou que o teto anterior (uma réplica, ~125-130 req/s combinados) foi superado com folga em `PEAK_RATE=400`. Para achar o novo ponto de quebra (agora limitado por `maxReplicas: 6` × `500m` de CPU por pod, ou por outro recurso ainda não testado), o próximo passo seria escalar `PEAK_RATE` (800, depois 1600...) até o teste abortar de novo — não feito nesta sessão, fica como candidato futuro se o objetivo for encontrar o novo teto exato em vez de só validar a mitigação.
