@@ -25,6 +25,45 @@ resource "random_password" "grafana_admin" {
   special = false # kept alphanumeric -- avoids any shell/YAML-escaping surprises when read back via `terraform output`
 }
 
+# Same underlying problem as random_password.grafana_admin above, applied to
+# ArgoCD's own admin login: helm_release.argocd (below) is a real Helm
+# release Terraform manages directly -- not re-templated statelessly on
+# every sync like the Applications further down -- so it wouldn't drift the
+# way Grafana's did. But without this, the chart auto-generates its own
+# initial password into argocd-initial-admin-secret on first deploy, which
+# means fetching a fresh value via kubectl every session just to log into
+# the UI (see docs/runbooks/access-argocd-ui.md's previous version). Setting
+# it here instead means `terraform output -raw argocd_admin_password` always
+# works, the same way it already does for Grafana.
+resource "random_password" "argocd_admin" {
+  length  = 24
+  special = false
+}
+
+# ArgoCD only accepts the admin password pre-seeded as a bcrypt hash in
+# argocd-secret (keys admin.password/admin.passwordMtime -- see the Operator
+# Manual's FAQ on the admin password), not plaintext like Grafana's
+# grafana.adminPassword. Terraform's own `bcrypt()` function embeds a fresh
+# random salt on every evaluation (its docs warn about this explicitly), so
+# passing it straight into helm_release.argocd's values would make that
+# release look changed on every single future `terraform plan`, even with
+# nothing real different -- freezing the computed hash (and a matching
+# mtime) into state once via `terraform_data` + `ignore_changes` avoids
+# that; both are only recomputed when the underlying password itself
+# changes (tracked via `triggers_replace`), never on a bare re-evaluation.
+resource "terraform_data" "argocd_admin_password_hash" {
+  triggers_replace = [random_password.argocd_admin.result]
+
+  input = {
+    hash  = bcrypt(random_password.argocd_admin.result)
+    mtime = timestamp()
+  }
+
+  lifecycle {
+    ignore_changes = [input]
+  }
+}
+
 # EKS access entries return success from CreateAccessEntry/AssociateAccessPolicy
 # in ~1s, but the control plane's authorizer takes some extra seconds to
 # actually start accepting the new principal -- there's no describe/wait
@@ -104,6 +143,23 @@ resource "helm_release" "argocd" {
   wait            = true
   atomic          = true
   cleanup_on_fail = true
+
+  # Stable admin login across sessions -- see random_password.argocd_admin
+  # and terraform_data.argocd_admin_password_hash above, and
+  # docs/runbooks/access-argocd-ui.md. `set`/`set_sensitive` are list
+  # attributes in helm provider v3.x, not repeatable blocks like in v2.x.
+  set_sensitive = [
+    {
+      name  = "configs.secret.argocdServerAdminPassword"
+      value = terraform_data.argocd_admin_password_hash.output.hash
+    },
+  ]
+  set = [
+    {
+      name  = "configs.secret.argocdServerAdminPasswordMtime"
+      value = terraform_data.argocd_admin_password_hash.output.mtime
+    },
+  ]
 
   # wait=true would otherwise time out waiting for pods to schedule on a
   # spot node group that's still scaling up from zero.
