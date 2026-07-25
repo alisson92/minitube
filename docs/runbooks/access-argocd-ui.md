@@ -1,22 +1,18 @@
 # Runbook — Acesso à UI do ArgoCD
 
-## Por que a senha muda a cada sessão
+## Como a senha é definida
 
-O `terraform/envs/lab/argocd.tf` não define `configs.secret.argocdServerAdminPassword` nos values do chart `argo-cd` — de propósito, para não commitar segredo nenhum no repositório. Sem esse valor, o próprio chart gera uma senha aleatória no primeiro deploy e grava no Secret `argocd-initial-admin-secret` (namespace `argocd`).
+`terraform/envs/lab/argocd.tf` gera a senha do `admin` via `random_password.argocd_admin` e injeta o hash bcrypt correspondente diretamente nos values do chart `argo-cd` (`configs.secret.argocdServerAdminPassword`/`argocdServerAdminPasswordMtime`, via `terraform_data.argocd_admin_password_hash`) — mesmo mecanismo já usado para a senha do Grafana (ADR 011, decisão 12). O valor em texto plano nunca é commitado: fica só no state do Terraform (backend remoto S3), lido via `terraform output`.
 
-Como `envs/lab` é recriado do zero em toda sessão (princípio de [infraestrutura efêmera](../../CLAUDE.md#princípios-inegociáveis)), o ArgoCD também é reinstalado do zero — logo, uma senha nova é gerada a cada vez. Não há como "fixar" essa senha sem passar a commitá-la (ou movê-la para um secret manager), o que não vale a pena para um ambiente que só existe algumas horas por sessão.
+Pré-seedar a senha assim faz o ArgoCD **nunca** criar o Secret `argocd-initial-admin-secret` (esse secret só é gerado pelo chart quando nenhuma senha de admin já existe em `argocd-secret`) — por isso o comando antigo (`kubectl get secret argocd-initial-admin-secret`) não funciona mais; use sempre o `terraform output` abaixo.
+
+Como `envs/lab` é recriado do zero em toda sessão, a senha muda a cada `terraform apply` (nova execução de `random_password.argocd_admin`) — não existe um `admin/admin` fixo entre sessões, só dentro da mesma.
 
 ## Comando
 
-Pré-requisito: `kubectl` configurado contra o cluster da sessão atual.
-
 ```bash
-# 1. Configura o kubeconfig (se ainda não tiver feito nesta sessão)
-AWS_PROFILE=cloudlab aws eks update-kubeconfig --name minitube-lab --region us-east-1
-
-# 2. Usuário sempre é "admin"; a senha sai do Secret gerado pelo chart
-AWS_PROFILE=cloudlab kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' | base64 -d && echo
+cd terraform/envs/lab
+AWS_PROFILE=cloudlab terraform output -raw argocd_admin_password && echo
 ```
 
 - **URL:** `https://argocd.minitube.projetodevops.com.br`
@@ -25,4 +21,4 @@ AWS_PROFILE=cloudlab kubectl -n argocd get secret argocd-initial-admin-secret \
 
 ## Nota sobre rotação
 
-Esse é o Secret *inicial* — ele continua valendo até alguém trocar a senha pela UI/CLI do ArgoCD (`argocd account update-password`), momento em que o chart o remove automaticamente (comportamento documentado do `argo-cd` Helm chart). Como o ambiente é destruído e recriado a cada sessão, essa rotação nunca chega a importar na prática aqui — mas vale saber para não estranhar se um dia a senha antiga parar de funcionar sem o ambiente ter sido recriado.
+Trocar a senha pela UI/CLI do ArgoCD (`argocd account update-password`) sobrescreve o hash em `argocd-secret` diretamente no cluster — o valor do `terraform output` fica desatualizado a partir daí (o Terraform não sabe da troca, e um `terraform apply` sem mudança nenhuma no state não reverte, graças ao `lifecycle.ignore_changes` em `terraform_data.argocd_admin_password_hash`). Como o ambiente é destruído e recriado a cada sessão, isso raramente chega a importar na prática — mas vale saber para não estranhar se a senha do `terraform output` parar de bater com a que está de fato ativa.

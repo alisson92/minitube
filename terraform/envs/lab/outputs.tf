@@ -99,6 +99,12 @@ output "grafana_admin_password" {
   sensitive   = true
 }
 
+output "argocd_admin_password" {
+  description = "ArgoCD admin password (terraform-generated, stable across every session -- see docs/runbooks/access-argocd-ui.md). Read via `terraform output -raw argocd_admin_password`, not `kubectl get secret argocd-initial-admin-secret` (pre-seeding the password this way means that secret is never populated)."
+  value       = random_password.argocd_admin.result
+  sensitive   = true
+}
+
 output "cloudfront_distribution_id" {
   description = "ID of the CloudFront distribution in front of the video bucket and the ALB, used by the cache invalidation and validation scripts"
   value       = aws_cloudfront_distribution.app.id

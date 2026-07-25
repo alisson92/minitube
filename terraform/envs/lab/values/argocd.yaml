@@ -21,13 +21,22 @@ configs:
     server.insecure: true
 
 controller:
+  # memory limit bumped from 256Mi/512Mi (Phase 3 sizing, before Phase 5)
+  # after a real OOMKill (exit 137) during a fresh Phase 6 apply: the
+  # controller crashed mid-sync while server-side-applying the ~24
+  # PrometheusRule/ServiceMonitor objects the kube-prometheus-stack chart
+  # brings (Phase 5), on top of every other Application's first sync
+  # happening at once. It kept crash-looping on retry instead of ever
+  # finishing that batch, leaving "kube-prometheus-stack"/"platform"
+  # permanently OutOfSync. CPU was never the issue (not OOMKilled on CPU),
+  # so only memory is raised here.
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
 
 repoServer:
   resources:
