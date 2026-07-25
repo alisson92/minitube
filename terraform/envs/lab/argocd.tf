@@ -206,6 +206,7 @@ resource "helm_release" "argocd_project" {
           "https://kubernetes-sigs.github.io/aws-ebs-csi-driver",
           "https://prometheus-community.github.io/helm-charts",
           "https://grafana.github.io/helm-charts",
+          "https://kubernetes-sigs.github.io/metrics-server/",
         ]
         destinations = [
           {
@@ -343,6 +344,21 @@ resource "helm_release" "argocd_apps" {
           server    = "https://kubernetes.default.svc"
           namespace = "minitube-app"
         }
+        # Phase 6: gitops/app/hpa.yaml drives spec.replicas on the api
+        # Deployment directly (a HorizontalPodAutoscaler doesn't own the
+        # field, it just PATCHes it in real time). Without this, selfHeal
+        # would fight the HPA -- reverting replicas back to the manifest's
+        # static value on every sync. Standard, ArgoCD-documented pattern
+        # for a Deployment managed by an HPA.
+        ignoreDifferences = [
+          {
+            group        = "apps"
+            kind         = "Deployment"
+            name         = "api"
+            namespace    = "minitube-app"
+            jsonPointers = ["/spec/replicas"]
+          },
+        ]
         syncPolicy = {
           automated = {
             prune    = true
@@ -695,6 +711,41 @@ resource "helm_release" "argocd_apps" {
             targetRevision = var.promtail_chart_version
             helm = {
               valueFiles = ["$values/gitops/plataforma/promtail/values.yaml"]
+            }
+          },
+        ]
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = local.platform_namespace
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+          syncOptions = ["CreateNamespace=true"]
+        }
+      }
+
+      # Phase 6: provides the metrics.k8s.io API the HPA on the api
+      # Deployment (gitops/app/hpa.yaml) reads CPU utilization from -- no HPA
+      # works without it. Same shape as promtail above: no AWS API calls (pure
+      # in-cluster kubelet scraping), no PVC, no IRSA role, no finalizer.
+      "metrics-server" = {
+        namespace = local.argocd_namespace
+        project   = "minitube-platform"
+        sources = [
+          {
+            repoURL        = local.gitops_repo_url
+            targetRevision = local.gitops_revision
+            ref            = "values"
+          },
+          {
+            repoURL        = "https://kubernetes-sigs.github.io/metrics-server/"
+            chart          = "metrics-server"
+            targetRevision = var.metrics_server_chart_version
+            helm = {
+              valueFiles = ["$values/gitops/plataforma/metrics-server/values.yaml"]
             }
           },
         ]
