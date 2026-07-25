@@ -1,0 +1,15 @@
+# EKS kubelet serving certs don't carry SANs metrics-server's default TLS
+# verification accepts (well-known EKS gap, documented in AWS's own
+# metrics-server guidance) -- kubelet traffic stays inside the VPC/node
+# security groups, never exposed externally, so this is the standard
+# accepted trade-off rather than a real security regression.
+args:
+  - --kubelet-insecure-tls
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

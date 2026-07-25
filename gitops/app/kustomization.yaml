@@ -12,5 +12,7 @@ resources:
   - rolebinding.yaml
   - configmap.yaml
   - deployment.yaml
+  - hpa.yaml
+  - pdb.yaml
   - service.yaml
   - ingress.yaml

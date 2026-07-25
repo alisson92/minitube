@@ -145,3 +145,9 @@ variable "promtail_chart_version" {
   type        = string
   default     = "6.17.1"
 }
+
+variable "metrics_server_chart_version" {
+  description = "Pinned version of the metrics-server Helm chart (https://artifacthub.io/packages/helm/metrics-server/metrics-server, repo https://kubernetes-sigs.github.io/metrics-server/). Provides the metrics.k8s.io API the HPA on the api Deployment reads CPU utilization from. Check for a newer stable release before bumping."
+  type        = string
+  default     = "3.13.1"
+}
