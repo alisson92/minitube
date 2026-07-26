@@ -165,3 +165,31 @@ Reexecutado `AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh` com **exata
 **Conclusão: a mitigação funcionou exatamente como o dado da execução anterior previa.** O gargalo de CPU de uma réplica única foi resolvido distribuindo a carga entre múltiplas réplicas, dentro da folga de CPU dos nodes já confirmada.
 
 **Isso não encontrou um novo teto de capacidade** — só confirmou que o teto anterior (uma réplica, ~125-130 req/s combinados) foi superado com folga em `PEAK_RATE=400`. Para achar o novo ponto de quebra (agora limitado por `maxReplicas: 6` × `500m` de CPU por pod, ou por outro recurso ainda não testado), o próximo passo seria escalar `PEAK_RATE` (800, depois 1600...) até o teste abortar de novo — não feito nesta sessão, fica como candidato futuro se o objetivo for encontrar o novo teto exato em vez de só validar a mitigação.
+
+## Resultado da execução via EC2, `PEAK_RATE=800` (2026-07-26) — novo teto real encontrado: `maxReplicas: 6`, não CPU de uma réplica
+
+Reexecutado `PEAK_RATE=800 AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh` (dobro do valor anterior), mesma instância `t3.small`, mesmo vídeo de teste. Desta vez o teste **abortou de novo** — mas por um motivo genuinamente diferente do bottleneck de CPU de uma réplica já resolvido pelo HPA:
+
+- `http_req_failed`: **0,00%** (2 falhas isoladas em 2.031.915 requisições — ruído desprezível, mesmo padrão de execuções anteriores).
+- `http_req_duration{endpoint:api}`: `p(95)=1.04s`, `max=12.94s` — estourou o threshold (`p(95)<1000`) de novo.
+- `http_reqs`: pico de ~3721,6 req/s combinado (viewers + api) antes do abort — a própria instância `t3.small` gerou throughput muito acima do `PEAK_RATE=800` alvo (checks, iterações e requisições completadas na casa dos milhões), o que já é um primeiro indício de que o gerador de carga **não** foi o gargalo desta vez.
+
+**Causa raiz confirmada via `kubectl describe hpa` + Prometheus, coletados logo após o teste** (réplicas já haviam voltado a `2` pelo cooldown do HPA no momento da coleta — por isso as queries instantâneas de CPU/latência abaixo mostram valores baixos, refletindo o estado pós-teste, não o pico):
+
+```
+Events:
+  Type    Reason             Age   From                       Message
+  ----    ------             ----  ----                       -------
+  Normal  SuccessfulRescale  15m   horizontal-pod-autoscaler  New size: 3; ...
+  Normal  SuccessfulRescale  15m   horizontal-pod-autoscaler  New size: 5; ...
+  Normal  SuccessfulRescale  14m   horizontal-pod-autoscaler  New size: 6; ...
+  Normal  SuccessfulRescale  3m7s  horizontal-pod-autoscaler  New size: 2; reason: All metrics below target
+```
+
+O HPA escalou 2 → 3 → 5 → **6** (o próprio `maxReplicas`) durante a rampa e **segurou em 6 réplicas** por vários minutos, até o tráfego cessar (scale-down para 2, "All metrics below target", ~3 minutos antes da coleta). Isso é a mesma sequência de escalonamento já vista no run bem-sucedido de `PEAK_RATE=400` — a diferença é que, desta vez, o sistema bateu no teto de `maxReplicas: 6` e ficou ali sob demanda ainda crescente, em vez de estabilizar com folga.
+
+**Conclusão: o novo teto real não é mais CPU de uma réplica (resolvido pelo HPA) — é o próprio `maxReplicas: 6` do HPA.** Com 6 réplicas × `limits.cpu: 500m` = 3 cores agregados como limite físico do Deployment, `PEAK_RATE=800` gerou mais demanda do que 3 cores conseguem absorver, causando fila (latência subindo até `max=12.94s`) sem chegar a derrubar requisições (erro seguiu em 0%) — o comportamento esperado de um sistema saturado, mas não instável.
+
+**Ponto parado aqui, sem escalar para `PEAK_RATE=1600`:** o critério de parada (causa raiz clara via HPA/Prometheus, ou CPU agregada no teto de `maxReplicas`) já foi atingido — testar `1600` só bateria na mesma parede mais rápido, sem revelar informação nova sobre a arquitetura atual. Achar o valor exato de req/s onde a degradação começa (entre 400 e 800) fica como candidato futuro, não necessário para o objetivo desta fase (confirmar que existe um teto conhecido e por quê).
+
+**Implicação prática para a Fase 6:** `maxReplicas: 6` (ADR 012) é hoje uma decisão de configuração, não uma limitação física — os 3 nodes `t3.medium` seguem com folga de sobra (confirmado nas execuções anteriores). Se o objetivo for suportar mais que ~800 req/s de pico, o próximo ajuste é subir `maxReplicas` (o node group aguenta mais réplicas antes de esbarrar no limite de 17 pods/nó da VPC CNI, ver ADR 011 decisão 1) — não uma mudança de estratégia de autoscaling.
