@@ -90,9 +90,11 @@ Cada fase tem um critério de conclusão explícito. Não avançar de fase sem f
 
 ## Runbook resumido de sessão
 
-**Subir:** `cd terraform/envs/lab` → `terraform plan` (revisar) → `terraform apply` → validar acesso ao cluster → (fase 3+) ArgoCD sincroniza o resto.
+**Subir:** `cd terraform/envs/lab` → `terraform plan` (revisar) → `terraform apply` → validar acesso ao cluster → ArgoCD sincroniza o resto.
 
 **Derrubar:** confirmar que nada precisa persistir → `terraform plan -destroy` (revisar) → `terraform destroy` → conferir no console/CLI que não restaram recursos cobráveis (EKS, NAT, ALB, EC2, EIP) → atualizar Estado atual.
+
+Sequência completa e detalhada (incluindo o bootstrap de conta, feito uma vez só) em [`docs/runbooks/run-the-project.md`](docs/runbooks/run-the-project.md).
 
 ## Estado atual
 
@@ -101,7 +103,7 @@ Cada fase tem um critério de conclusão explícito. Não avançar de fase sem f
 - **Roadmap completo.** Todas as 6 fases encerradas e validadas funcionalmente (critérios de conclusão cumpridos, ver tabela acima). Trabalho futuro é opcional, listado abaixo.
 - **Infraestrutura persistente entre sessões** (sem custo relevante — ver ADR 001, 004, 005): bucket de state S3; IAM Identity Center (permission set `cloudlab-operator`, roles do EKS, role de smoke test, budget alert) em `terraform/bootstrap-iam/`; dois repositórios ECR, hosted zone Route 53, certificado ACM wildcard e o parâmetro SSM da deploy key do ArgoCD em `terraform/bootstrap/`.
 - **`terraform/envs/lab/`** (VPC, EKS, S3 de vídeo, ArgoCD, CloudFront, observabilidade) é efêmero por design: sobe no início da sessão, é destruído por completo ao final, sempre confirmado sem recursos órfãos via API AWS direta. Estado no momento: **destruído**.
-- **Organização de repositório concluída** (pós-roadmap, preparação para tornar o repositório público): nomes de arquivo/diretório em inglês (PR #36); módulos Terraform próprios `vpc`/`eks` (PR #37, [ADR 013](docs/adr/013-terraform-vpc-eks-modules.md)); `docs/runbooks/` organizado por categoria (PR #38); `load/README.md` documentando a cobertura dos scripts de carga (PR #39); este `CLAUDE.md` reescrito de diário de sessão para retrato atual (PR #40); auditoria de comentários redundantes/verbosos em todo o código `.tf`/`.yaml`/`.sh`/`.js`/`.py` (PR #41).
+- **Organização de repositório concluída** (pós-roadmap, preparação para tornar o repositório público): nomes de arquivo/diretório em inglês (PR #36); módulos Terraform próprios `vpc`/`eks` (PR #37, [ADR 013](docs/adr/013-terraform-vpc-eks-modules.md)); `docs/runbooks/` organizado por categoria (PR #38); `load/README.md` documentando a cobertura dos scripts de carga (PR #39); este `CLAUDE.md` reescrito de diário de sessão para retrato atual (PR #40); auditoria de comentários redundantes/verbosos em todo o código `.tf`/`.yaml`/`.sh`/`.js`/`.py` (PR #41); auditoria de documentação (3 conteúdos desatualizados corrigidos, PR #42) e [`docs/runbooks/run-the-project.md`](docs/runbooks/run-the-project.md) — runbook único cobrindo a sequência completa, do bootstrap de conta ao `destroy`, incluindo a ressalva explícita sobre os recursos de `bootstrap-iam/` que exigem sessão root/CloudShell.
 - **Próximos passos (opcionais, sem fase formal associada):**
   1. Achar o teto exato de capacidade além do já confirmado `PEAK_RATE=800`/`maxReplicas: 6` (escalar mais, ou subir `maxReplicas`).
   2. KEDA como alternativa ao HPA por CPU.
