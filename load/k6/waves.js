@@ -79,11 +79,12 @@ export const options = {
       ],
     },
   },
-  // Observational only, no abortOnFail -- 500ms is still the unrevised SLO
-  // placeholder from gitops/plataforma/kube-prometheus-stack/slo-rules.yaml
-  // at the time this was written; it's expected to be breached during the
-  // "pico do gol" stage on purpose. Read the actual numbers from the k6
-  // summary and Prometheus, don't rely on pass/fail here.
+  // Observational only, no abortOnFail -- the SLO's critical threshold
+  // (APILatencyCritical, 800ms in slo-rules.yaml) is expected to be
+  // breached during the "pico do gol" stage on purpose (that data point is
+  // in fact what the threshold is based on -- see
+  // docs/runbooks/run-k6-breakpoint.md). Read the actual numbers from the
+  // k6 summary and Prometheus, don't rely on pass/fail here.
   thresholds: {
     "http_req_failed": ["rate<0.05"],
     "http_req_duration{endpoint:api}": ["p(95)<1000"],

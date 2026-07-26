@@ -52,9 +52,10 @@ export const options = {
     http_req_failed: ["rate<0.01"],
     "http_req_duration{endpoint:playlist}": ["p(95)<500"],
     "http_req_duration{endpoint:segment}": ["p(95)<500"],
-    // matches the 500ms placeholder in gitops/plataforma/kube-prometheus-stack/slo-rules.yaml --
-    // this run is exactly what that threshold is waiting on to become a real number.
-    "http_req_duration{endpoint:api}": ["p(95)<500"],
+    // matches APILatencyWarning in gitops/plataforma/kube-prometheus-stack/slo-rules.yaml --
+    // revised in Phase 6 from the original 500ms placeholder using this
+    // script's own first result (p95=186ms) plus the breakpoint/waves data.
+    "http_req_duration{endpoint:api}": ["p(95)<250"],
   },
 };
 
