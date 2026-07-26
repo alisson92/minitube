@@ -29,6 +29,12 @@ Nada precisa ser revertido no cluster ao final — o Kubernetes recria o pod del
   - `kubectl -n minitube-app describe pdb api` — o PDB bloqueou alguma disrupção concorrente?
   - Se `ready_replicas < 2` no pré-check, o script falha antes de começar — a Deployment precisa estar com o HPA já estabilizado em pelo menos 2 réplicas.
 
-## Resultado da execução (`<preencher após rodar>`)
+## Resultado da execução (2026-07-26) — PASS
 
-_Aguardando primeira execução real contra o cluster — ver [`docs/runbooks/incident-response.md`](incident-response.md) para o contexto mais amplo de resposta a incidente._
+Executado contra a infra real (2 réplicas prontas, HPA em `cpu: 3%/70%`). Pod `api-7b868f7f45-kmvv6` deletado aos 15s da janela; o `ReplicaSet` criou `api-7b868f7f45-m6zlg` em seguida.
+
+- **Total de requisições:** 94 (janela de 90s, uma a cada 0,5s).
+- **Não-200:** 0.
+- **Taxa de erro:** 0%.
+
+`PASS`: `minReplicas: 2` + o `PodDisruptionBudget` absorveram a perda do pod sem nenhum impacto perceptível do lado do cliente — exatamente o comportamento esperado.
