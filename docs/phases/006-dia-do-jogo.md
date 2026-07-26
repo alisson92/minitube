@@ -50,12 +50,14 @@ Resultados completos em cada runbook — aqui só o resumo:
 
 ## Gráficos/Evidências visuais
 
-> Dashboard "dia do jogo" reconstruído como código em `gitops/plataforma/kube-prometheus-stack/dashboard-dia-do-jogo.yaml` (bug 7 acima — o original da Fase 5 nunca tinha sido commitado). Depois do ArgoCD sincronizar, exportados manualmente pelo operador (`https://grafana.<domínio>`) — a UI não é acessível a partir desta sessão.
+Dashboard "dia do jogo" reconstruído como código em `gitops/plataforma/kube-prometheus-stack/dashboard-dia-do-jogo.yaml` (bug 7 acima — o original da Fase 5 nunca tinha sido commitado). Print real, exportado pelo operador depois do ArgoCD sincronizar (`Last 6 hours`, cobrindo os testes desta sessão):
 
-- `assets/006-hit-ratio-cdn.png` — hit ratio do CloudFront durante os testes de carga. *(pendente)*
-- `assets/006-latencia-p95-p99.png` — latência p95/p99 da API cruzando os estágios dos testes (baseline, breakpoint, ondas). *(pendente)*
-- `assets/006-saturacao-hpa.png` — réplicas do HPA e CPU agregada subindo/descendo (ondas). *(pendente)*
-- `assets/006-erros-alb.png` — erros da ALB durante os experimentos de caos. *(pendente)*
+![Dashboard "Dia do Jogo" no Grafana — 4 painéis: hit ratio do CDN, latência p95/p99, saturação (HPA + CPU dos nodes), erros da ALB](assets/006-dia-do-jogo-dashboard.png)
+
+- **Latência da API (p95/p99):** os dois picos visíveis (~16:00 e ~16:30, batendo perto de 1s) coincidem com os testes de breakpoint/ondas mais pesados — o dado real por trás da revisão do SLO (`APILatencyCritical` em 800ms).
+- **Saturação (réplicas do HPA + CPU dos nodes):** vários picos ao longo da tarde, um por teste de carga rodado nesta sessão — confirma visualmente o padrão de escala do HPA discutido nos runbooks.
+- **Hit ratio do CDN:** `No data` — esperado e já documentado no PR #33: requer "Additional metrics" habilitado na distribution do CloudFront (custo extra, não ligado em `cloudfront.tf`). O hit ratio real já foi confirmado por outro caminho (header `X-Cache`) em `scripts/validate-cloudfront-dns-tls.sh`.
+- **Erros da ALB (5xx):** `No data` — plausivelmente correto, não um painel quebrado: o CloudWatch não publica pontos para métricas de contagem que nunca tiveram um evento (>0) na janela, e todos os testes desta fase (breakpoint, ondas, os 3 experimentos de caos) reportaram taxa de erro em ~0% do lado do cliente. Consistente com "nenhum 5xx real aconteceu", não com "o painel não funciona".
 
 ## Lições aprendidas
 
@@ -68,8 +70,9 @@ Resultados completos em cada runbook — aqui só o resumo:
 
 ## Estado final da fase
 
-- Critério de conclusão: relatório final ✅ (este documento), o que quebrou primeiro ✅ (seção "Bugs reais" acima — o achado central foi a probe mal calibrada, não falta de capacidade), lições aprendidas ✅. **Gráficos do dashboard "dia do jogo" pendentes** de exportação manual pelo operador (seção acima) — fase só é considerada formalmente encerrada depois que as imagens forem adicionadas.
-- PRs desta fase: #20, #21, #22, #24, #25, #26, #27, #28, #29, #30, #31 — todos mergeados em `main`.
+- Critério de conclusão cumprido: relatório final ✅ (este documento, com gráficos reais ✅), o que quebrou primeiro ✅ (seção "Bugs reais" acima — o achado central foi a probe mal calibrada, não falta de capacidade), lições aprendidas ✅.
+- PRs desta fase: #20, #21, #22, #24, #25, #26, #27, #28, #29, #30, #31, #33 — todos mergeados em `main`.
+- **Fase 6 (Dia do jogo) formalmente encerrada.**
 
 ## Próxima fase
 
