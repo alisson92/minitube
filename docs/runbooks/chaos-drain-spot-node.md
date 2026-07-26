@@ -29,6 +29,10 @@ O node escolhido é sempre descordonado ao final (`trap cleanup EXIT`), mesmo em
   - Confira `kubectl -n minitube-app get pods -o wide` — os pods ficaram `Pending`? Provavelmente falta de capacidade nos nodes restantes (2 nodes × 17 pods/nó via VPC CNI, ver ADR 011 decisão 1) — nesse caso o `maxReplicas: 6` do HPA pode estar tentando escalar além do que 2 nodes comportam.
   - Se o script falhou porque **todos** os nodes hospedam pods com PVC, é sinal de que o cluster está rodando com menos nodes do que o esperado (`3/3/3`) — confira `kubectl get nodes`.
 
-## Resultado da execução (`<preencher após rodar>`)
+## Resultado da execução (2026-07-26) — PASS
 
-_Aguardando primeira execução real contra o cluster — ver [`docs/runbooks/incident-response.md`](incident-response.md) para o contexto mais amplo de resposta a incidente._
+Node alvo escolhido automaticamente (`ip-10-0-24-125...`, sem PVC — os outros dois hospedavam Prometheus/Loki/Grafana e foram evitados). Além do pod `api`, o node também hospedava vários singletons de plataforma sem afinidade explícita a este node em particular: `argocd-application-controller-0`, `ebs-csi-controller`, `cert-manager-webhook`, `external-dns`, `alertmanager`, `kube-prometheus-stack-operator` e `coredns` — todos drenados e reagendados junto, sem erro (`argocd-application-controller` não tem PVC nesta configuração — `terraform/envs/lab/values/argocd.yaml` não define persistência — por isso não precisou entrar na lista de nodes evitados, só os StatefulSets com PVC real de Prometheus/Loki/Grafana precisam disso).
+
+`kubectl rollout status deployment/api` completou dentro do timeout: os dois pods `api` restantes reapareceram `Running` nos outros dois nodes (`api-...-dcw29`, `api-...-m6zlg`). Node descordonado ao final (`trap cleanup EXIT`), confirmado no próprio log (`node/... uncordoned`).
+
+`PASS`: reagendamento automático confirmado, sem intervenção manual.
