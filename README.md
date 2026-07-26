@@ -34,11 +34,12 @@ app/         # API (FastAPI) e transcoder (FFmpeg) + Dockerfiles
 load/        # cenários k6
 chaos/       # experimentos de caos (kill pod, drain node, derrubar observabilidade)
 docs/        # motivação, ADRs, runbooks e retrospectos por fase
+Makefile     # make validate-all -- roda as 6 checagens funcionais em ordem, sem parar no primeiro erro
 ```
 
 ## Como começar
 
-A sequência completa — de uma conta AWS zerada até `app.<domínio>` servindo vídeo, e de volta a zero ao final da sessão — está em [`docs/runbooks/run-the-project.md`](docs/runbooks/run-the-project.md).
+A sequência completa — de uma conta AWS zerada até `app.<domínio>` servindo vídeo, e de volta a zero ao final da sessão — está em [`docs/runbooks/run-the-project.md`](docs/runbooks/run-the-project.md). Depois do `terraform apply`, `make validate-all` roda todas as checagens funcionais de uma vez (`make help` lista as individuais).
 
 ## Status
 
