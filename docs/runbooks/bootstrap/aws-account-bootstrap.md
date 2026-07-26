@@ -47,14 +47,22 @@ Ativação de serviço em nível de conta — a AWS não expõe isso via Terrafo
 
 Criar o usuário via Terraform (`aws_identitystore_user`) não dispara esse fluxo de convite/ativação — por isso esse passo é manual, uma única vez por conta.
 
-## Passo 6 — Aplicar `bootstrap-iam` (permission set do operador)
+## Passo 6 — Aplicar `bootstrap-iam` (tudo que exige permissão de admin)
 
-Cria o permission set `cloudlab-operator` e a atribuição de conta para o usuário criado no passo 5 — precisa rodar com a sessão root/CloudShell, pois os recursos `aws_ssoadmin_*`/`aws_identitystore_*` não estão cobertos pela `PowerUserAccess` do operador diário:
+Precisa rodar com a sessão root/CloudShell — não só o permission set em si, mas **todo recurso administrativo acumulado ao longo do projeto** que a `PowerUserAccess` do operador diário não alcança (`aws_ssoadmin_*`/`aws_identitystore_*` porque são recursos de IAM Identity Center; o resto porque `PowerUserAccess` exclui IAM de propósito, inclusive leituras). Hoje isso inclui:
+
+- Permission set `cloudlab-operator` + policy `PowerUserAccess` + atribuição de conta (o único item que existia na Fase 1, ADR 002/003).
+- Roles do EKS (`minitube-eks-cluster-role`, `minitube-eks-node-role`) + os service-linked roles do EKS (ADR 004).
+- Role de smoke test (`minitube-network-smoke-test`) usada pelos scripts de validação funcional.
+- Budget alert da conta (ADR 005).
+- A policy inline única do permission set (`operator_pass_roles`) — sete `Statement`s acumulados fase a fase, liberando ao operador diário exatamente o necessário para passar/gerenciar essas roles e as IRSA roles que ele mesmo cria em `envs/lab` (app, plataforma, OIDC provider, EBS CSI).
+
+Isso não é um passo pontual só desta fase — é reaplicado (mesmo `terraform apply`) sempre que uma sessão futura precisar de uma permissão nova aqui; nada disso volta a exigir os passos 4-5 (Identity Center/usuário), só este:
 
 ```bash
 cd terraform/bootstrap-iam
 terraform init
-terraform plan       # revisar: permission set + managed policy attachment + account assignment
+terraform plan       # revisar: todos os recursos acima, numa conta nova
 terraform apply       # confirmar manualmente (yes)
 ```
 
