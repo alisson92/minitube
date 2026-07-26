@@ -87,7 +87,7 @@ variable "argocd_chart_version" {
 }
 
 variable "argocd_gitops_revision" {
-  description = "Git branch/tag the root Applications track in gitops/app and gitops/plataforma. Defaults to main; override with -var only to validate a feature branch before it's merged (e.g. gitops/plataforma/ doesn't exist on main until this branch merges)."
+  description = "Git branch/tag the root Applications track in gitops/app and gitops/platform. Defaults to main; override with -var only to validate a feature branch before it's merged (e.g. gitops/platform/ doesn't exist on main until this branch merges)."
   type        = string
   default     = "main"
 }

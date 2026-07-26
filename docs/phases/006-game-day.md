@@ -13,13 +13,13 @@
 | Fix do bug de TTL do Job exposto pelo 1º teste de carga | `app/api/jobs.py`, imagem `v0.1.4` | #20 |
 | `load/k6/baseline.js` + runbook | `load/k6/`, `docs/runbooks/run-k6-baseline.md` | #21 |
 | `load/k6/breakpoint.js` + `run-breakpoint-from-ec2.sh` + runbook | `load/`, `docs/runbooks/run-k6-breakpoint.md` | #21, #26 |
-| HPA + metrics-server + PDB (ADR 012) | `gitops/app/{hpa,pdb}.yaml`, `gitops/plataforma/metrics-server/` | #22 |
+| HPA + metrics-server + PDB (ADR 012) | `gitops/app/{hpa,pdb}.yaml`, `gitops/platform/metrics-server/` | #22 |
 | `load/k6/waves.js` + `run-waves-from-ec2.sh` + runbook | `load/`, `docs/runbooks/run-k6-waves.md` | #26 |
 | Fix de `readinessProbe`/`livenessProbe` (timeout curto demais sob saturação) | `gitops/app/deployment.yaml` | #27 |
 | 3 experimentos de caos + `docs/runbooks/incident-response.md` | `chaos/`, `docs/runbooks/chaos-*.md` | #25, #28, #29, #30 |
-| SLO de latência revisado com dado real | `gitops/plataforma/kube-prometheus-stack/slo-rules.yaml` | #31 |
+| SLO de latência revisado com dado real | `gitops/platform/kube-prometheus-stack/slo-rules.yaml` | #31 |
 | Backfill dos retrospectos de Fase 4 e 5 | `docs/phases/004-*.md`, `005-*.md` | #24 |
-| Dashboard "dia do jogo" reconstruído como código | `gitops/plataforma/kube-prometheus-stack/dashboard-dia-do-jogo.yaml` | *(este PR)* |
+| Dashboard "dia do jogo" reconstruído como código | `gitops/platform/kube-prometheus-stack/dashboard-game-day.yaml` | *(este PR)* |
 
 ## Decisões de arquitetura (ADRs)
 
@@ -35,7 +35,7 @@ Nenhum destes apareceu fora de um teste de carga ou experimento de caos real —
 4. **Novo teto real pós-HPA: `maxReplicas: 6`, não CPU de uma réplica** — escalando o breakpoint para `PEAK_RATE=800`, o HPA bateu no próprio `maxReplicas: 6` (3 cores agregados) e segurou lá sob demanda crescente, causando fila (latência subindo a `p95=1,04s`, `max=12,94s`) sem erros reais (`0,00%`) — comportamento de saturação controlada, não crash.
 5. **Probes matando pods sobrecarregados, não travados** — o cenário de ondas (`waves.js`) expôs que `readinessProbe`/`livenessProbe` (`gitops/app/deployment.yaml`) não tinham `timeoutSeconds` explícito (default do Kubernetes: 1s) — curto demais frente ao `p95=2,42s` real no pico. O `kubelet` matava pods que estavam sobrecarregados, cortando capacidade bem na hora em que o HPA mais precisava dela. Achado mais valioso da fase em termos de "o que quebrou primeiro": não foi capacidade agregada (o HPA absorveu o pico como esperado), foi uma probe mal calibrada amplificando a própria saturação que o HPA tentava resolver.
 6. **`disable-observability-stack.sh` — três bugs em sequência, só o script de teste, não a arquitetura:** (a) tentava descobrir um `video_id` via `GET /api/videos`, rota que nunca existiu (só `POST /api/videos` e `GET /api/videos/{id}`) — o script abortava silenciosamente sob `set -euo pipefail`; (b) a descoberta de workloads por `app.kubernetes.io/instance` (label do Helm) nunca cobria o StatefulSet real do Prometheus/Alertmanager, criados dinamicamente pelo Prometheus Operator com labels próprios — o primeiro resultado "válido" (`FAIL`, 18,75% de erro) não significava nada, porque o Prometheus nunca tinha saído do ar; (c) a correção (descoberta por exclusão) varreu por engano o `metrics-server` (Application separada, fora do escopo do experimento), cujo `selfHeal` nunca pausado reverteu o `scale --replicas=0` sozinho — inofensivo, mas corrigido.
-7. **Dashboard "dia do jogo" nunca existiu como código** — só descoberto ao procurar as evidências visuais para este relatório. `values.yaml` já configura o sidecar do Grafana pra carregar dashboards de ConfigMaps (`grafana_dashboard`), mas o dashboard em si, confirmado visualmente na Fase 5, foi montado direto na UI e nunca commitado — com `grafana.persistence.enabled: false` (intencional), ele some a cada `terraform/envs/lab` recriado. Corrigido com `gitops/plataforma/kube-prometheus-stack/dashboard-dia-do-jogo.yaml`, os mesmos 4 painéis como ConfigMap versionado.
+7. **Dashboard "dia do jogo" nunca existiu como código** — só descoberto ao procurar as evidências visuais para este relatório. `values.yaml` já configura o sidecar do Grafana pra carregar dashboards de ConfigMaps (`grafana_dashboard`), mas o dashboard em si, confirmado visualmente na Fase 5, foi montado direto na UI e nunca commitado — com `grafana.persistence.enabled: false` (intencional), ele some a cada `terraform/envs/lab` recriado. Corrigido com `gitops/platform/kube-prometheus-stack/dashboard-game-day.yaml`, os mesmos 4 painéis como ConfigMap versionado.
 
 ## Como validamos
 
@@ -50,9 +50,9 @@ Resultados completos em cada runbook — aqui só o resumo:
 
 ## Gráficos/Evidências visuais
 
-Dashboard "dia do jogo" reconstruído como código em `gitops/plataforma/kube-prometheus-stack/dashboard-dia-do-jogo.yaml` (bug 7 acima — o original da Fase 5 nunca tinha sido commitado). Print real, exportado pelo operador depois do ArgoCD sincronizar (`Last 6 hours`, cobrindo os testes desta sessão):
+Dashboard "dia do jogo" reconstruído como código em `gitops/platform/kube-prometheus-stack/dashboard-game-day.yaml` (bug 7 acima — o original da Fase 5 nunca tinha sido commitado). Print real, exportado pelo operador depois do ArgoCD sincronizar (`Last 6 hours`, cobrindo os testes desta sessão):
 
-![Dashboard "Dia do Jogo" no Grafana — 4 painéis: hit ratio do CDN, latência p95/p99, saturação (HPA + CPU dos nodes), erros da ALB](assets/006-dia-do-jogo-dashboard.png)
+![Dashboard "Dia do Jogo" no Grafana — 4 painéis: hit ratio do CDN, latência p95/p99, saturação (HPA + CPU dos nodes), erros da ALB](assets/006-game-day-dashboard.png)
 
 - **Latência da API (p95/p99):** os dois picos visíveis (~16:00 e ~16:30, batendo perto de 1s) coincidem com os testes de breakpoint/ondas mais pesados — o dado real por trás da revisão do SLO (`APILatencyCritical` em 800ms).
 - **Saturação (réplicas do HPA + CPU dos nodes):** vários picos ao longo da tarde, um por teste de carga rodado nesta sessão — confirma visualmente o padrão de escala do HPA discutido nos runbooks.

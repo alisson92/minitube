@@ -1,5 +1,5 @@
 # Routes grafana.<domain> straight to the shared ALB, same pattern as
-# gitops/plataforma/argocd/ingress.yaml -- an internal operational tool,
+# gitops/platform/argocd/ingress.yaml -- an internal operational tool,
 # doesn't need CloudFront edge caching. Shares the same IngressGroup
 # (group.name: minitube) so the aws-load-balancer-controller provisions a
 # single ALB, not one per Ingress. See docs/adr/011-observability-stack.md.

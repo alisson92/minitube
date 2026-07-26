@@ -17,7 +17,7 @@ domainFilters:
 txtOwnerId: minitube-lab
 
 # "sync" (create+update+delete) rather than "upsert-only": the Ingress this
-# watches (gitops/app/ingress.yaml, gitops/plataforma/argocd/ingress.yaml) is
+# watches (gitops/app/ingress.yaml, gitops/platform/argocd/ingress.yaml) is
 # recreated every session along with the rest of envs/lab, so stale records
 # from a previous session's ALB must be cleaned up automatically.
 policy: sync

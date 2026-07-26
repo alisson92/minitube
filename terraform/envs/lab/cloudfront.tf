@@ -50,7 +50,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 
 # The ALB is provisioned dynamically by the aws-load-balancer-controller
 # from gitops/app/ingress.yaml (via the IngressGroup shared with
-# gitops/plataforma/argocd/ingress.yaml), not by Terraform -- so its DNS
+# gitops/platform/argocd/ingress.yaml), not by Terraform -- so its DNS
 # name can't be known until the controller has actually reconciled the
 # Ingress. `alb.ingress.kubernetes.io/load-balancer-name: minitube-app` on
 # that Ingress pins a predictable name, making this lookup by name instead

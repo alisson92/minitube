@@ -83,7 +83,7 @@ controller_ready() {
 run_check "argocd-application-controller has at least 1 ready replica" controller_ready || overall=1
 
 # (b) Both root Applications reach Synced (health check relaxed for
-# "platform", which syncs 0 resources in this phase -- see gitops/plataforma/README.md)
+# "platform", which syncs 0 resources in this phase -- see gitops/platform/README.md)
 app_synced_healthy() {
   local app="$1" require_healthy="$2" sync health
   sync=$(kubectl --kubeconfig "$kubeconfig" -n "$ARGOCD_NAMESPACE" get application.argoproj.io "$app" \

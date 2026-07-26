@@ -2,7 +2,7 @@
 # (terraform/envs/lab/cloudfront.tf), which routes /api/* here uncached --
 # a host-based rule would collide with that Terraform-managed alias instead
 # of complementing it. Shares the same IngressGroup as
-# gitops/plataforma/argocd/ingress.yaml (group.name: minitube) so the
+# gitops/platform/argocd/ingress.yaml (group.name: minitube) so the
 # aws-load-balancer-controller provisions one ALB, not two. See
 # docs/adr/008-cloudfront-dns-tls.md.
 apiVersion: networking.k8s.io/v1
@@ -24,7 +24,7 @@ metadata:
     # test: argocd.<domain> was silently served by this api backend
     # (HTTP 404 from uvicorn) instead of ArgoCD.
     alb.ingress.kubernetes.io/group.order: "20"
-    # Set identically on gitops/plataforma/argocd/ingress.yaml -- must match
+    # Set identically on gitops/platform/argocd/ingress.yaml -- must match
     # across every member of the group, so this predictable name (not an
     # auto-generated one) is what terraform/envs/lab/cloudfront.tf's
     # `data "aws_lb"` looks up by.

@@ -47,4 +47,4 @@ Nenhum destes apareceu em teste local isolado — todos só surgiram exercitando
 
 ## Próxima fase
 
-[Fase 3 — GitOps](../../CLAUDE.md#fases-do-projeto): instalar o ArgoCD e sincronizar `gitops/app/` (e `gitops/plataforma/`) a partir do Git — critério de conclusão: nenhum `kubectl apply` manual, todo deploy sai do Git. Elimina a exceção temporária registrada no ADR 006 (item 7).
+[Fase 3 — GitOps](../../CLAUDE.md#fases-do-projeto): instalar o ArgoCD e sincronizar `gitops/app/` (e `gitops/platform/`) a partir do Git — critério de conclusão: nenhum `kubectl apply` manual, todo deploy sai do Git. Elimina a exceção temporária registrada no ADR 006 (item 7).

@@ -19,7 +19,7 @@ output "ecr_transcoder_repository_url" {
 }
 
 output "route53_zone_id" {
-  description = "Hosted zone ID of the delegated subdomain, looked up by terraform/envs/lab (data \"aws_route53_zone\") and hardcoded into gitops/plataforma/cert-manager's ClusterIssuer solver"
+  description = "Hosted zone ID of the delegated subdomain, looked up by terraform/envs/lab (data \"aws_route53_zone\") and hardcoded into gitops/platform/cert-manager's ClusterIssuer solver"
   value       = aws_route53_zone.minitube.zone_id
 }
 

@@ -20,13 +20,13 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: grafana-dashboard-dia-do-jogo
+  name: grafana-dashboard-game-day
   namespace: minitube-platform
   labels:
     app.kubernetes.io/part-of: minitube
     grafana_dashboard: "1"
 data:
-  dia-do-jogo.json: |
+  game-day.json: |
     {
       "title": "Dia do Jogo",
       "tags": ["minitube", "phase-6"],
@@ -87,7 +87,7 @@ data:
         {
           "id": 2,
           "title": "Latência da API (p95 / p99)",
-          "description": "Limiares do SLO (gitops/plataforma/kube-prometheus-stack/slo-rules.yaml): warning 250ms, critical 800ms.",
+          "description": "Limiares do SLO (gitops/platform/kube-prometheus-stack/slo-rules.yaml): warning 250ms, critical 800ms.",
           "type": "timeseries",
           "datasource": "Prometheus",
           "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },

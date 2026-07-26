@@ -35,7 +35,7 @@ Guia geral de como detectar, triar e mitigar um incidente na API/HLS do MiniTube
 
 ### 1. Detectar
 
-Três sinais oficiais, todos definidos em [`gitops/plataforma/kube-prometheus-stack/slo-rules.yaml`](../../gitops/plataforma/kube-prometheus-stack/slo-rules.yaml) (`PrometheusRule minitube-api-slo`):
+Três sinais oficiais, todos definidos em [`gitops/platform/kube-prometheus-stack/slo-rules.yaml`](../../gitops/platform/kube-prometheus-stack/slo-rules.yaml) (`PrometheusRule minitube-api-slo`):
 
 ```bash
 # Gera kubeconfig efêmero (repita em qualquer passo abaixo que precise dele)
@@ -134,7 +134,7 @@ curl -sf "$(terraform -chdir=terraform/envs/lab output -raw app_url)/api/healthz
 
 ## Referências
 
-- [`gitops/plataforma/kube-prometheus-stack/slo-rules.yaml`](../../gitops/plataforma/kube-prometheus-stack/slo-rules.yaml) — definição dos dois alertas.
+- [`gitops/platform/kube-prometheus-stack/slo-rules.yaml`](../../gitops/platform/kube-prometheus-stack/slo-rules.yaml) — definição dos dois alertas.
 - [`docs/runbooks/chaos-kill-api-pod.md`](chaos-kill-api-pod.md), [`chaos-drain-spot-node.md`](chaos-drain-spot-node.md), [`chaos-disable-observability-stack.md`](chaos-disable-observability-stack.md) — cenários treinados.
 - [`docs/runbooks/run-k6-breakpoint.md`](run-k6-breakpoint.md), [`run-k6-waves.md`](run-k6-waves.md) — comportamento sob carga.
 - [`docs/runbooks/validate-observability.md`](validate-observability.md) — como validar a stack de observabilidade do zero.

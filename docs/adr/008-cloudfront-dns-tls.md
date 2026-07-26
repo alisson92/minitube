@@ -16,7 +16,7 @@ Critério de conclusão da Fase 4 (`CLAUDE.md`): `app.<domínio>` servindo víde
 
 ### 2. `argocd.<domínio>` vai direto à ALB, não via CloudFront
 
-ArgoCD é ferramenta operacional interna — não se beneficia de cache de borda, e manter o CloudFront restrito a servir HLS por padrão + `/api/*` sob demanda mantém seu comportamento dinâmico mínimo. Roteado por `gitops/plataforma/argocd/ingress.yaml` + `external-dns` (a ALB é provisionada dinamicamente pelo controller, então só um controller in-cluster sabe seu endpoint atual a cada sessão — um `aws_route53_record` estático no Terraform não serviria aqui, ao contrário do registro do CloudFront).
+ArgoCD é ferramenta operacional interna — não se beneficia de cache de borda, e manter o CloudFront restrito a servir HLS por padrão + `/api/*` sob demanda mantém seu comportamento dinâmico mínimo. Roteado por `gitops/platform/argocd/ingress.yaml` + `external-dns` (a ALB é provisionada dinamicamente pelo controller, então só um controller in-cluster sabe seu endpoint atual a cada sessão — um `aws_route53_record` estático no Terraform não serviria aqui, ao contrário do registro do CloudFront).
 
 ### 3. Um único certificado ACM (us-east-1) serve CloudFront e ALB
 
@@ -24,7 +24,7 @@ Já previsto no comentário de `terraform/bootstrap/dns.tf` desde o PR #1. Cloud
 
 ### 4. IngressGroup compartilhado — uma única ALB para app e ArgoCD
 
-`gitops/app/ingress.yaml` e `gitops/plataforma/argocd/ingress.yaml` usam `alb.ingress.kubernetes.io/group.name: minitube`, provisionando uma ALB só em vez de duas (custo: ~$0,0225/h fixo por ALB). Ambos fixam `alb.ingress.kubernetes.io/load-balancer-name: minitube-app` (idêntico nos dois) para dar à ALB um nome prévisível, em vez de depender das tags auto-geradas pelo controller.
+`gitops/app/ingress.yaml` e `gitops/platform/argocd/ingress.yaml` usam `alb.ingress.kubernetes.io/group.name: minitube`, provisionando uma ALB só em vez de duas (custo: ~$0,0225/h fixo por ALB). Ambos fixam `alb.ingress.kubernetes.io/load-balancer-name: minitube-app` (idêntico nos dois) para dar à ALB um nome prévisível, em vez de depender das tags auto-geradas pelo controller.
 
 ### 5. `data "aws_lb"` por nome, não por tags — e a dependência circular que isso expõe
 
@@ -34,19 +34,19 @@ Isso expõe uma dependência circular real: no primeiro `apply` de um ambiente n
 
 ### 6. Entrega dos 3 add-ons via ArgoCD Application multi-source
 
-Cada add-on (aws-load-balancer-controller, external-dns, cert-manager) é uma Application dedicada em `terraform/envs/lab/argocd.tf` (chart `argocd-apps`, mesmo mecanismo do ADR 007) com dois `sources`: o chart Helm oficial remoto + um `ref: values` apontando para este próprio repositório Git (`gitops/plataforma/<addon>/values.yaml`). Permite injetar o ARN da IRSA role correspondente (conhecido só pelo Terraform) via `helm.parameters`, sem copiar nada manualmente para o Git.
+Cada add-on (aws-load-balancer-controller, external-dns, cert-manager) é uma Application dedicada em `terraform/envs/lab/argocd.tf` (chart `argocd-apps`, mesmo mecanismo do ADR 007) com dois `sources`: o chart Helm oficial remoto + um `ref: values` apontando para este próprio repositório Git (`gitops/platform/<addon>/values.yaml`). Permite injetar o ARN da IRSA role correspondente (conhecido só pelo Terraform) via `helm.parameters`, sem copiar nada manualmente para o Git.
 
 **Alternativas descartadas:**
 - **Kustomize `helmCharts:` (HelmChartInflationGenerator):** incompatível com `directory.recurse = true`, já em uso pela Application `platform` — adotar exigiria trocar o tipo de source dessa Application inteira, sem ganho real sobre a opção escolhida.
 - **`helm template` pré-renderizado e commitado:** quebra "Git como única fonte de verdade" a cada bump de versão de chart — o ArgoCD nunca saberia que o chart mudou, risco de drift silencioso entre o commitado e o chart real.
 
-### 7. `gitops/plataforma/` ganha subdiretório por add-on; Application `platform` exclui `values.yaml`
+### 7. `gitops/platform/` ganha subdiretório por add-on; Application `platform` exclui `values.yaml`
 
 Os `values.yaml` de cada add-on não são manifests Kubernetes válidos sozinhos — a Application `platform` (modo `directory`, recursivo) ganha `directory.exclude = "**/values.yaml"` para não tentar sincronizá-los como recursos soltos. O único manifest plano real que a Application `platform` continua sincronizando nesta fase é `cert-manager/cluster-issuer.yaml`.
 
 ### 8. `ClusterIssuer` funcional, mas sem consumidor público real nesta fase
 
-`gitops/plataforma/cert-manager/cluster-issuer.yaml` (DNS-01 via Route53) prova que a IRSA role do cert-manager e o RBAC funcionam ponta a ponta (ClusterIssuer chega a `Ready`), mas nenhum `Certificate` é emitido por ele ainda — CloudFront e a ALB usam o certificado ACM já existente e validado (persistente, PR #1). YAGNI: emitir um certificado Let's Encrypt real exigiria expor um endpoint HTTP-01 publicamente ou reusar o mesmo desafio DNS-01 sem ganho sobre o certificado ACM já validado. `hostedZoneID` é hardcoded no manifest (zona persistente, ID estável entre sessões) — mesmo padrão de `var.operator_role_arn`.
+`gitops/platform/cert-manager/cluster-issuer.yaml` (DNS-01 via Route53) prova que a IRSA role do cert-manager e o RBAC funcionam ponta a ponta (ClusterIssuer chega a `Ready`), mas nenhum `Certificate` é emitido por ele ainda — CloudFront e a ALB usam o certificado ACM já existente e validado (persistente, PR #1). YAGNI: emitir um certificado Let's Encrypt real exigiria expor um endpoint HTTP-01 publicamente ou reusar o mesmo desafio DNS-01 sem ganho sobre o certificado ACM já validado. `hostedZoneID` é hardcoded no manifest (zona persistente, ID estável entre sessões) — mesmo padrão de `var.operator_role_arn`.
 
 ### 9. Ingress do app catch-all, sem `host:`
 
@@ -73,7 +73,7 @@ Nenhum dos quatro apareceu em `terraform plan`/`validate` — só na sincroniza�
 1. **`AppProject.sourceRepos` não liberava os repositórios Helm dos add-ons.** As 3 Applications multi-source (decisão 6) falhavam com `InvalidSpecError: application repo ... is not permitted in project` — `sourceRepos` restringe **todo** source de toda Application do projeto, não só o Git. Corrigido adicionando os 3 URLs de chart (`eks-charts`, `external-dns`, `charts.jetstack.io`) à lista.
 2. **`AppProject.destinations` não liberava `kube-system`.** O chart do cert-manager cria `Role`/`RoleBinding` de leader-election em `kube-system` por padrão do upstream, independente do namespace de instalação do resto do chart — `SyncFailed: namespace kube-system is not permitted in project`. Corrigido adicionando `kube-system` aos destinos permitidos.
 3. **`aws-load-balancer-controller` não descobre o VPC ID sozinho neste cluster.** Sem `vpcId` explícito nos values, o controller tenta descobri-lo via IMDS na instância EC2 do node — falha (`context deadline exceeded`) e o pod entra em `CrashLoopBackOff`. Corrigido injetando `vpcId = aws_vpc.lab.id` via `helm.parameters` na Application (mesmo mecanismo já usado para o ARN da IRSA role — o valor muda a cada sessão, então não pode ser hardcoded em `values.yaml`).
-4. **Prioridade de regras da ALB compartilhada invertida (`group.order`).** `gitops/app/ingress.yaml` (catch-all, sem `host:`) e `gitops/plataforma/argocd/ingress.yaml` (`host: argocd.<domínio>`) compartilham a mesma `IngressGroup` (decisão 4) — a regra catch-all tinha `group.order: "10"` (maior prioridade, número menor) contra `"20"` do Ingress do ArgoCD, então a ALB casava **toda** requisição — inclusive `argocd.<domínio>` — com o backend `api` antes de avaliar a regra específica de host. Sintoma: `argocd.<domínio>` respondia `404` do `uvicorn` (a API FastAPI), TLS válido, sem nenhum erro do lado do ArgoCD. Corrigido invertendo os valores: regras com `host:` específico precisam de número **menor** (maior prioridade) que o catch-all.
+4. **Prioridade de regras da ALB compartilhada invertida (`group.order`).** `gitops/app/ingress.yaml` (catch-all, sem `host:`) e `gitops/platform/argocd/ingress.yaml` (`host: argocd.<domínio>`) compartilham a mesma `IngressGroup` (decisão 4) — a regra catch-all tinha `group.order: "10"` (maior prioridade, número menor) contra `"20"` do Ingress do ArgoCD, então a ALB casava **toda** requisição — inclusive `argocd.<domínio>` — com o backend `api` antes de avaliar a regra específica de host. Sintoma: `argocd.<domínio>` respondia `404` do `uvicorn` (a API FastAPI), TLS válido, sem nenhum erro do lado do ArgoCD. Corrigido invertendo os valores: regras com `host:` específico precisam de número **menor** (maior prioridade) que o catch-all.
 
 ### 13. `terraform import` do access entry falhando por causa de um data source não relacionado
 
@@ -104,6 +104,6 @@ As 3 Applications de add-ons e a Application `app`/`platform` (declaradas via `h
 - `terraform/envs/lab/argocd.tf`: `AppProject` ganha destino `argocd`; Application `platform` ganha `directory.exclude`; 3 novas Applications multi-source; `kubernetes_secret_v1.argocd_repo_credentials` passa a ler `data.aws_ssm_parameter` em vez de `var.argocd_repo_ssh_private_key` (removida).
 - `terraform/bootstrap/ssm.tf` (novo): `aws_ssm_parameter.argocd_repo_ssh_private_key`, persistente — ver decisão 10.
 - `terraform/envs/lab/values/argocd.yaml`: `configs.params."server.insecure" = true` (TLS termina na ALB).
-- `gitops/plataforma/{aws-load-balancer-controller,external-dns,cert-manager}/values.yaml`, `cert-manager/cluster-issuer.yaml`, `argocd/ingress.yaml` (novos).
+- `gitops/platform/{aws-load-balancer-controller,external-dns,cert-manager}/values.yaml`, `cert-manager/cluster-issuer.yaml`, `argocd/ingress.yaml` (novos).
 - `gitops/app/ingress.yaml` (novo) + `kustomization.yaml` atualizado.
 - `terraform/envs/lab/scripts/validate-cloudfront-dns-tls.sh` + `docs/runbooks/validate-cloudfront-dns-tls.md` (novos), seguindo o padrão de validação funcional pós-apply (`docs/engineering-standards.md` §11).

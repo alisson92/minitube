@@ -38,7 +38,7 @@ Dois charts oficiais separados (`grafana/loki` + `grafana/promtail`), não `loki
 
 Nenhum provisionador de volume dinâmico existia (confirmado: nenhum `aws_eks_addon`, nenhuma `StorageClass`, grep vazio por `ebs`/`csi`/`storageclass` em todo `terraform/envs/lab/`) — necessário para os PVCs de Prometheus e Loki.
 
-Instalado como mais um subdiretório `gitops/plataforma/ebs-csi-driver/` + Application multi-source, o mesmo mecanismo já usado para `aws-load-balancer-controller`/`external-dns`/`cert-manager` na Fase 4, em vez de `aws_eks_addon` (a alternativa gerenciada pela AWS) — mantém um único padrão de instalação de add-on de plataforma no repositório, em vez de dois mecanismos concorrentes.
+Instalado como mais um subdiretório `gitops/platform/ebs-csi-driver/` + Application multi-source, o mesmo mecanismo já usado para `aws-load-balancer-controller`/`external-dns`/`cert-manager` na Fase 4, em vez de `aws_eks_addon` (a alternativa gerenciada pela AWS) — mantém um único padrão de instalação de add-on de plataforma no repositório, em vez de dois mecanismos concorrentes.
 
 IRSA role com a policy **gerenciada** oficial da AWS (`AmazonEBSCSIDriverPolicy`, via `aws_iam_role_policy_attachment`), não uma policy inline própria — é o padrão documentado pela AWS para este driver especificamente, diferente dos outros 3 add-ons de plataforma (todos com policy inline). Isso exigiu um novo `Sid` (`AttachEbsCsiManagedPolicy`) na policy inline única do permission set do operador (`terraform/bootstrap-iam/main.tf`) — `ManagePlatformIrsaRoles` só cobria `iam:PutRolePolicy`/`DeleteRolePolicy` (ações de policy inline), não `iam:AttachRolePolicy`/`DetachRolePolicy`. Escopado por `iam:PolicyARN` a exatamente essa policy gerenciada, para que o grant não possa ser usado para anexar nada mais amplo a uma role `platform-*`.
 
@@ -104,7 +104,7 @@ Corrigido gerando a senha uma única vez em estado real do Terraform (`resource 
 - `terraform/envs/lab/variables.tf`: sizing `3/3/3`; 4 novas `*_chart_version` (ebs_csi_driver, kube_prometheus_stack, loki, promtail).
 - `terraform/envs/lab/iam-platform.tf`: 2 novas IRSA roles (`ebs_csi_driver`, `grafana`); `terraform/envs/lab/outputs.tf`: outputs correspondentes.
 - `terraform/envs/lab/argocd.tf`: `sourceRepos` do AppProject +3; 4 novas Applications multi-source (`ebs-csi-driver`, `kube-prometheus-stack`, `loki`, `promtail`); `depends_on` de `helm_release.argocd_apps` estendido às 2 novas policies IAM.
-- `gitops/plataforma/{ebs-csi-driver,kube-prometheus-stack,loki,promtail}/`: novos, seguindo o padrão de subdiretório por componente já estabelecido na Fase 4.
+- `gitops/platform/{ebs-csi-driver,kube-prometheus-stack,loki,promtail}/`: novos, seguindo o padrão de subdiretório por componente já estabelecido na Fase 4.
 - `app/api/main.py`, `app/api/requirements.txt`, `gitops/app/service.yaml`, `gitops/app/deployment.yaml`: instrumentação `/metrics`, porta nomeada, imagem `v0.1.3`.
 - `terraform/envs/lab/scripts/validate-observability.sh`, `docs/runbooks/validate-observability.md`: novos.
 - Risco da decisão 4 (órfão de volume EBS) fica em aberto até o primeiro ciclo `destroy` real confirmar ou descartar — se confirmado, é candidato a um ADR 012 próprio, no mesmo padrão do ADR 010.
