@@ -49,20 +49,13 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 }
 
 # The ALB is provisioned dynamically by the aws-load-balancer-controller
-# from gitops/app/ingress.yaml (via the IngressGroup shared with
-# gitops/platform/argocd/ingress.yaml), not by Terraform -- so its DNS
-# name can't be known until the controller has actually reconciled the
-# Ingress. `alb.ingress.kubernetes.io/load-balancer-name: minitube-app` on
-# that Ingress pins a predictable name, making this lookup by name instead
-# of guessing the controller's auto-generated tag values.
-#
-# depends_on only orders the Terraform API calls, not the in-cluster
-# reconciliation -- helm_release.argocd_apps returns as soon as the
-# Application CRs are created, well before the controller has actually
-# provisioned the ALB. Without a real wait, the very first `apply` of a
-# brand-new environment fails here ~always ("no matching load balancer
-# found"), forcing a manual re-run. Polls until the ALB exists instead, so
-# a single `apply` always completes end to end. See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+# (from gitops/app/ingress.yaml), not Terraform, so its name is only
+# predictable via `alb.ingress.kubernetes.io/load-balancer-name` on that
+# Ingress -- looked up below by that fixed name. depends_on alone only
+# orders API calls, not in-cluster reconciliation: helm_release.argocd_apps
+# returns before the controller has actually provisioned the ALB, failing
+# the very first `apply` of a new environment ~always without this poll.
+# See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
 resource "null_resource" "wait_for_alb" {
   depends_on = [helm_release.argocd_apps]
 
@@ -71,12 +64,8 @@ resource "null_resource" "wait_for_alb" {
   }
 
   provisioner "local-exec" {
-    # local-exec's default interpreter is ["/bin/sh", "-c"] -- on this
-    # system /bin/sh is dash, which doesn't understand `set -o pipefail`.
-    # Forcing bash explicitly keeps this consistent with the `set -euo
-    # pipefail` convention used by every scripts/validate-*.sh in the repo
-    # (docs/engineering-standards.md), instead of quietly downgrading to
-    # `set -eu` just because this command happens not to pipe anything today.
+    # Default interpreter (/bin/sh) is dash here, which doesn't support
+    # pipefail -- forced to bash for consistency with every validate-*.sh.
     interpreter = ["/bin/bash", "-c"]
     command     = <<-EOT
       set -euo pipefail
@@ -98,14 +87,10 @@ data "aws_lb" "app_shared" {
   depends_on = [null_resource.wait_for_alb]
 }
 
-# CloudFront's custom origin does TLS hostname verification against
-# whatever `domain_name` is set to below -- the ALB's raw AWS-assigned DNS
-# name isn't covered by any SAN on the ACM wildcard cert it serves
-# (*.${var.domain_name} only), so pointing the origin straight at
-# data.aws_lb.app_shared.dns_name fails the handshake with a CloudFront
-# 502, discovered testing /api/* end-to-end for the first time. This alias
-# record gives the ALB a name under our own domain, which the wildcard cert
-# already covers.
+# CloudFront's custom origin does TLS hostname verification -- the ALB's
+# raw AWS-assigned DNS name isn't covered by the ACM wildcard cert's SAN
+# (*.${var.domain_name} only), causing a 502. This alias gives the ALB a
+# name under our own domain, which the wildcard cert already covers.
 resource "aws_route53_record" "alb_origin" {
   zone_id = data.aws_route53_zone.minitube.zone_id
   name    = "alb-origin.${var.domain_name}"

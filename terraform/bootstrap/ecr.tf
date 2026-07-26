@@ -1,8 +1,7 @@
-# Image registry for the app's two container images (api, transcoder).
-# Lives here, not in bootstrap-iam: ECR is not restricted by PowerUserAccess,
-# so the daily operator can manage it without a CloudShell/root session.
-# Persistent by design — rebuilding images every session would be wasteful,
-# and the registry itself isn't part of the ephemeral envs/lab test cycle.
+# Image registry for the app's two container images. Lives here, not
+# bootstrap-iam: ECR isn't restricted by PowerUserAccess. Persistent by
+# design -- outside envs/lab's ephemeral cycle, rebuilding every session
+# would be wasteful.
 resource "aws_ecr_repository" "api" {
   name = "${var.project}-api"
 

@@ -5,52 +5,29 @@ locals {
   gitops_revision    = var.argocd_gitops_revision
 }
 
-# The kube-prometheus-stack chart auto-generates Grafana's admin password
-# (randAlphaNum in its own Secret template) whenever grafana.adminPassword
-# is left unset -- fine under a real `helm install`/`upgrade` (Helm's own
-# release state keeps the value stable across upgrades), but NOT under
-# ArgoCD: the Application here is rendered via a stateless `helm template`
-# on every sync (no lookup against the live Secret), so a fresh random
-# password got baked in and re-applied on every single sync, while
-# Grafana's live pod only reads the secret once at startup -- the password
-# a `kubectl get secret` shows and the one actually active in Grafana's
-# already-running pod silently drifted apart. Confirmed on this session's
-# first real login attempt: the freshly-fetched secret didn't work. Fixed
-# by generating the password once here, in real Terraform state, and
-# injecting it via helm.parameters (same mechanism as the IRSA role ARNs
-# below) -- stable across every sync, because it isn't re-derived by the
-# chart at all anymore. See docs/adr/011-observability-stack.md.
+# Generated once here, not left to the chart's own randAlphaNum default --
+# under ArgoCD's stateless `helm template` per sync, that default rotates
+# the password every sync while Grafana's running pod keeps the old one in
+# memory. See docs/adr/011-observability-stack.md (decision 12).
 resource "random_password" "grafana_admin" {
   length  = 24
   special = false # kept alphanumeric -- avoids any shell/YAML-escaping surprises when read back via `terraform output`
 }
 
-# Same underlying problem as random_password.grafana_admin above, applied to
-# ArgoCD's own admin login: helm_release.argocd (below) is a real Helm
-# release Terraform manages directly -- not re-templated statelessly on
-# every sync like the Applications further down -- so it wouldn't drift the
-# way Grafana's did. But without this, the chart auto-generates its own
-# initial password into argocd-initial-admin-secret on first deploy, which
-# means fetching a fresh value via kubectl every session just to log into
-# the UI (see docs/runbooks/access-argocd-ui.md's previous version). Setting
-# it here instead means `terraform output -raw argocd_admin_password` always
-# works, the same way it already does for Grafana.
+# Without this, the chart auto-generates its own initial password on first
+# deploy, meaning a fresh `kubectl` lookup every session just to log in.
+# Setting it here makes `terraform output -raw argocd_admin_password`
+# always work, same as Grafana's above. See docs/runbooks/access-argocd-ui.md.
 resource "random_password" "argocd_admin" {
   length  = 24
   special = false
 }
 
-# ArgoCD only accepts the admin password pre-seeded as a bcrypt hash in
-# argocd-secret (keys admin.password/admin.passwordMtime -- see the Operator
-# Manual's FAQ on the admin password), not plaintext like Grafana's
-# grafana.adminPassword. Terraform's own `bcrypt()` function embeds a fresh
-# random salt on every evaluation (its docs warn about this explicitly), so
-# passing it straight into helm_release.argocd's values would make that
-# release look changed on every single future `terraform plan`, even with
-# nothing real different -- freezing the computed hash (and a matching
-# mtime) into state once via `terraform_data` + `ignore_changes` avoids
-# that; both are only recomputed when the underlying password itself
-# changes (tracked via `triggers_replace`), never on a bare re-evaluation.
+# ArgoCD needs the password pre-seeded as a bcrypt hash (argocd-secret),
+# not plaintext. Terraform's `bcrypt()` re-salts on every evaluation, so
+# using it directly in helm_release.argocd's values would show as changed
+# on every plan -- freezing hash+mtime here via ignore_changes avoids that;
+# only recomputed when the password itself changes (triggers_replace).
 resource "terraform_data" "argocd_admin_password_hash" {
   triggers_replace = [random_password.argocd_admin.result]
 
@@ -73,32 +50,25 @@ resource "kubernetes_namespace_v1" "argocd" {
     }
   }
 
-  # Neither resource is referenced by this one, so Terraform has no implicit
-  # ordering between them -- without this, a `destroy` can (and did, once)
-  # tear down the operator's EKS access entry before this namespace and
-  # everything that depends on it (the repo secret, both helm_releases),
-  # revoking kubectl access mid-destroy and leaving the k8s-side resources
-  # stuck ("cannot delete resource secrets"). Depending on the whole module
-  # forces the correct order both ways: access granted (and propagated, via
-  # module.eks's own time_sleep) before k8s resources are created, and k8s
-  # resources torn down before access is revoked.
+  # No implicit ordering with module.eks -- without this, a `destroy` once
+  # tore down the operator's EKS access entry before this namespace (and
+  # everything depending on it), revoking kubectl mid-destroy. Forces both
+  # directions: access ready (module.eks's own time_sleep) before k8s
+  # resources are created, torn down only after.
   depends_on = [module.eks]
 }
 
-# Read from SSM Parameter Store (terraform/bootstrap/ssm.tf), not a TF_VAR --
-# the key persists across every envs/lab apply/destroy cycle instead of
-# needing to be regenerated and re-exported each session. See
+# Read from SSM (terraform/bootstrap/ssm.tf), not a TF_VAR, so the key
+# persists across sessions instead of being re-exported each time. See
 # docs/adr/008-cloudfront-dns-tls.md.
 data "aws_ssm_parameter" "argocd_repo_ssh_private_key" {
   name            = "/${var.project}/argocd-repo-ssh-private-key"
   with_decryption = true
 }
 
-# Repository credentials in the format ArgoCD expects for a Secret-based repo
-# credential (docs: Operator Manual > Declarative Setup > Repositories).
-# Kept as a standalone resource rather than under the chart's
-# `configs.repositories` value so the private key's lifecycle isn't coupled
-# to argo-cd chart upgrades.
+# Standalone resource (ArgoCD's Secret-based repository credential format)
+# rather than the chart's configs.repositories value, so the key's lifecycle
+# isn't coupled to argo-cd chart upgrades.
 resource "kubernetes_secret_v1" "argocd_repo_credentials" {
   metadata {
     name      = "minitube-repo-ssh"
@@ -153,19 +123,11 @@ resource "helm_release" "argocd" {
   depends_on = [module.eks]
 }
 
-# Split out from helm_release.argocd_apps below into its own release --
-# discovered on a real `destroy` that a single release deletes all its
-# templated resources with no ordering guarantee between different CRD
-# kinds. With the AppProject and the Applications that reference it in the
-# same release, `helm uninstall` deleted the AppProject before the "app"/
-# "platform" Applications' resources-finalizer finished pruning, and ArgoCD
-# permanently failed with `error getting app project "minitube-platform":
-# ... not found` -- the Applications never finished deleting. Terraform's
-# own dependency graph (see depends_on on helm_release.argocd_apps below)
-# gives an explicit, reliable ordering that Helm's uninstall alone can't:
-# this release is destroyed only *after* argocd_apps, so the project
-# outlives every Application that references it. See
-# docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+# Split out from helm_release.argocd_apps below so Terraform's dependency
+# graph (not Helm's uninstall order) controls destroy ordering -- a single
+# release once deleted this AppProject before the Applications referencing
+# it finished pruning, permanently breaking ArgoCD ("project ... not
+# found"). See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
 resource "helm_release" "argocd_project" {
   name       = "argocd-project"
   repository = "https://argoproj.github.io/argo-helm"
@@ -180,11 +142,9 @@ resource "helm_release" "argocd_project" {
       minitube-platform = {
         namespace   = local.argocd_namespace
         description = "Platform components (kube-prometheus-stack/Loki in Phase 5). ArgoCD self-management is a future candidate, not implemented — see ADR 007."
-        # Each add-on's second source (its official Helm chart repo, Phase 4)
-        # must be explicitly allow-listed here too -- AppProject.sourceRepos
-        # restricts every source of every Application under this project, not
-        # just the Git one. Missing this causes InvalidSpecError ("repo ...
-        # is not permitted in project"), discovered on the first real sync.
+        # Every add-on's chart repo must be allow-listed here too --
+        # sourceRepos covers every source of every Application under this
+        # project, not just the Git one. Missing one: InvalidSpecError.
         sourceRepos = [
           local.gitops_repo_url,
           "https://aws.github.io/eks-charts",
@@ -208,10 +168,8 @@ resource "helm_release" "argocd_project" {
             server    = "https://kubernetes.default.svc"
           },
           {
-            # The cert-manager chart's leader-election Role/RoleBinding are
-            # hardcoded by upstream to live in kube-system, regardless of
-            # where the rest of the chart is installed -- discovered on the
-            # first real sync ("namespace kube-system is not permitted").
+            # cert-manager's leader-election Role/RoleBinding are hardcoded
+            # by upstream to live in kube-system regardless of install namespace.
             namespace = "kube-system"
             server    = "https://kubernetes.default.svc"
           },
@@ -240,65 +198,24 @@ resource "helm_release" "argocd_apps" {
   version    = var.argocd_apps_chart_version
   namespace  = kubernetes_namespace_v1.argocd.metadata[0].name
 
-  # wait=true is already the provider default (made explicit here); on
-  # `destroy` it makes `helm uninstall` block until the Application CRs are
-  # actually gone -- load-bearing now that "app"/"platform" carry the
-  # resources-finalizer below, since that's what makes ArgoCD prune the
-  # shared-ALB Ingress/TargetGroupBinding (and the LBC deprovision the ALB)
-  # while the node group is still up, instead of orphaning them. timeout
-  # bumped past the provider's 300s default to give that prune + AWS
-  # cleanup enough headroom. See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+  # wait=true (provider default, made explicit) blocks `destroy` until the
+  # Application CRs are gone -- load-bearing since "app"/"platform" carry
+  # resources-finalizer below, so this is what lets ArgoCD prune the
+  # shared-ALB Ingress before the node group disappears. timeout raised for
+  # that headroom. See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
   wait    = true
   timeout = 600
 
-  # None of the networking resources on the egress path are referenced by
-  # this release's values, so nothing forced them to survive past it --
-  # discovered on two separate real `destroy` runs. First attempt: only the
-  # NAT gateway/private route/private associations were pinned here, but
-  # the NAT gateway's own subnet is *public* -- its route to the internet
-  # gateway and the public route table associations had no dependency on
-  # this release either, so Terraform destroyed them within the first
-  # minute regardless. The NAT gateway itself survived (per that fix) but
-  # sat isolated with nowhere to send traffic, so the LBC pods (private
-  # subnet) still lost all AWS API connectivity mid-cleanup, permanently
-  # stalling the resources-finalizer the same way. Pinning the *entire*
-  # egress path -- both the private side (NAT gateway, its route, its
-  # subnet associations) and the public side the NAT gateway itself depends
-  # on (internet gateway, the public route, its subnet associations) -- is
-  # what actually keeps egress alive for the whole lifetime of this
-  # release, in both directions: created before it (nodes/pods need egress
-  # from the start anyway) and destroyed only after it. See
-  # docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md. Originally this meant
-  # enumerating each of those 6 resources individually; since they all now
-  # live inside module.vpc (docs/adr/013-terraform-vpc-eks-modules.md),
-  # depending on the whole module is equivalent and doesn't need updating
-  # if the module's internals ever change.
-  # aws_iam_role.aws_load_balancer_controller/aws_iam_role.external_dns
-  # are already implicitly protected -- their ARNs are referenced directly
-  # in the values below (helm.parameters), which makes this release
-  # implicitly depend on them. Their *policies* (aws_iam_role_policy.*) are
-  # separate resources that nothing references, so they had no such
-  # protection -- discovered on a third real `destroy` where the LBC's
-  # policy was ripped away mid-cleanup (role still assumable, but every
-  # ELBv2 call started failing with AccessDenied instead of the earlier
-  # timeout) while it was still deregistering targets and deleting the
-  # shared ALB. external-dns's policy gets the same treatment pre-emptively
-  # -- it needs it to delete the argocd.<domain> record for the pruned
-  # argocd-server Ingress, which would otherwise silently orphan a Route53
-  # record pointing at an ALB that's about to be gone.
-  #
-  # Same reasoning extends to the ebs-csi-driver's managed-policy attachment
-  # and grafana's inline policy (Phase 5): the "kube-prometheus-stack" and
-  # "loki" Applications below own PVCs, and deleting a PVC only triggers a
-  # real EBS DeleteVolume call if the ebs-csi-driver controller pod is still
-  # alive *and* still authorized when that happens -- the exact same race
-  # class as the ALB orphan bug, just for EBS volumes instead of load
-  # balancers. Not yet confirmed to bite in practice (no live ordering
-  # guarantee exists between sibling Applications within this one release,
-  # same gap ADR-010 decision 2 fixed for the AppProject) -- this depends_on
-  # is the cheap, known-good half of the mitigation; watch for orphaned EBS
-  # volumes on the first real destroy cycle (see
-  # docs/adr/011-observability-stack.md).
+  # Nothing in this release's values references the network path or the
+  # add-ons' IAM *policies* (roles are already implicit via ARNs in
+  # helm.parameters below), so without this, `destroy` tore each down mid-
+  # cleanup across three separate real runs -- isolated NAT gateway losing
+  # egress, LBC/external-dns policies ripped away while still deregistering
+  # ALB targets/DNS records. module.vpc covers the whole egress path at
+  # once (see docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md and
+  # docs/adr/013-terraform-vpc-eks-modules.md); the ebs-csi-driver/grafana
+  # policies get the same treatment pre-emptively for PVC deletion
+  # (docs/adr/011-observability-stack.md), not yet confirmed to bite.
   depends_on = [
     helm_release.argocd,
     helm_release.argocd_project,
@@ -330,12 +247,9 @@ resource "helm_release" "argocd_apps" {
           server    = "https://kubernetes.default.svc"
           namespace = "minitube-app"
         }
-        # Phase 6: gitops/app/hpa.yaml drives spec.replicas on the api
-        # Deployment directly (a HorizontalPodAutoscaler doesn't own the
-        # field, it just PATCHes it in real time). Without this, selfHeal
-        # would fight the HPA -- reverting replicas back to the manifest's
-        # static value on every sync. Standard, ArgoCD-documented pattern
-        # for a Deployment managed by an HPA.
+        # gitops/app/hpa.yaml PATCHes spec.replicas at runtime -- without
+        # this, selfHeal would revert it to the manifest's static value on
+        # every sync. Standard ArgoCD pattern for HPA-managed Deployments.
         ignoreDifferences = [
           {
             group        = "apps"
@@ -413,13 +327,10 @@ resource "helm_release" "argocd_apps" {
                   value = aws_iam_role.aws_load_balancer_controller.arn
                 },
                 {
-                  # Without this, the controller falls back to discovering
-                  # the VPC via EC2 instance metadata (IMDS), which fails
-                  # ("context deadline exceeded") on this cluster's spot
-                  # nodes -- discovered on the first real sync. The VPC ID
-                  # changes every session (envs/lab is recreated from
-                  # scratch), so it's injected here rather than hardcoded in
-                  # gitops/platform/aws-load-balancer-controller/values.yaml.
+                  # Without this the controller falls back to VPC discovery
+                  # via IMDS, which fails on this cluster's spot nodes. VPC
+                  # ID changes every session, so injected here instead of
+                  # hardcoded in values.yaml.
                   name  = "vpcId"
                   value = module.vpc.vpc_id
                 },
@@ -615,16 +526,10 @@ resource "helm_release" "argocd_apps" {
             prune    = true
             selfHeal = true
           }
-          # ServerSideApply=true is load-bearing, not a style choice: the
-          # Prometheus Operator CRDs (prometheuses/alertmanagers/etc.) this
-          # chart installs are large enough that client-side apply's
-          # kubectl.kubernetes.io/last-applied-configuration annotation
-          # exceeds Kubernetes' 262144-byte limit -- discovered on the first
-          # real sync (SyncFailed on every CRD, then every Prometheus/
-          # Alertmanager CR cascading with "no matches for kind ... ensure
-          # CRDs are installed first", since the CRDs never actually
-          # applied). Server-side apply doesn't use that annotation at all.
-          # See docs/adr/011-observability-stack.md.
+          # Load-bearing: this chart's Prometheus Operator CRDs are too
+          # large for client-side apply's last-applied-configuration
+          # annotation (262144-byte limit) -- every CRD failed to sync
+          # until this was set. See docs/adr/011-observability-stack.md.
           syncOptions = ["CreateNamespace=true", "ServerSideApply=true"]
           retry = {
             limit = 5

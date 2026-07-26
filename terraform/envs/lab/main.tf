@@ -11,12 +11,9 @@ provider "aws" {
   }
 }
 
-# aws_eks_cluster_auth builds a pre-signed STS URL locally to obtain a
-# short-lived cluster token — it makes no call to the EKS API itself, so it
-# doesn't block on cluster readiness. What actually orders this correctly
-# against module.eks is referencing the module's own outputs below
-# (endpoint/certificate_authority_data), not a hardcoded value: Terraform
-# infers the dependency from that reference.
+# aws_eks_cluster_auth builds a pre-signed STS URL locally (no EKS API
+# call), so it doesn't block on cluster readiness -- ordering against
+# module.eks comes from referencing its outputs below, not a hardcoded value.
 data "aws_eks_cluster_auth" "lab" {
   name = module.eks.cluster_name
 }
@@ -27,10 +24,8 @@ provider "kubernetes" {
   token                  = data.aws_eks_cluster_auth.lab.token
 }
 
-# helm provider v3.x moved to the Plugin Framework: `kubernetes` is a single
-# object attribute here, not a nested block like in an aws-auth ConfigMap
-# provider generation or the old SDKv2 helm provider — using a block instead
-# fails terraform validate.
+# helm provider v3.x: `kubernetes` is a single object attribute here, not a
+# nested block like the old SDKv2 helm provider -- a block fails validate.
 provider "helm" {
   kubernetes = {
     host                   = module.eks.cluster_endpoint
