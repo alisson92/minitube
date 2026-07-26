@@ -25,7 +25,7 @@ import { check, sleep } from "k6";
 // (including planned degradation at the peak and recovery afterwards), not
 // to stop at the first breach like breakpoint.js does.
 //
-// Usage: WAVE_PEAK_RATE=<req/s, default 700> load/run-waves.sh
+// Usage: WAVE_PEAK_RATE=<req/s, default 700> load/run-waves-from-ec2.sh
 // See docs/runbooks/load/run-k6-waves.md.
 
 const BASE_URL = __ENV.BASE_URL;
@@ -94,7 +94,7 @@ export const options = {
 export function setup() {
   if (!BASE_URL || !VIDEO_ID) {
     throw new Error(
-      "BASE_URL and VIDEO_ID env vars are required -- run this via load/run-waves.sh or load/run-waves-from-ec2.sh, not k6 directly"
+      "BASE_URL and VIDEO_ID env vars are required -- run this via load/run-waves-from-ec2.sh, not k6 directly"
     );
   }
 
