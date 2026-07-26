@@ -1,8 +1,5 @@
 # Routes grafana.<domain> straight to the shared ALB, same pattern as
-# gitops/platform/argocd/ingress.yaml -- an internal operational tool,
-# doesn't need CloudFront edge caching. Shares the same IngressGroup
-# (group.name: minitube) so the aws-load-balancer-controller provisions a
-# single ALB, not one per Ingress. See docs/adr/011-observability-stack.md.
+# gitops/platform/argocd/ingress.yaml. See docs/adr/011-observability-stack.md.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -18,9 +15,7 @@ metadata:
     # Between argocd (10) and the app's catch-all (20) -- both other
     # host-specific and host-less rules already reserve those two values.
     alb.ingress.kubernetes.io/group.order: "15"
-    # Must match every other member of the group exactly -- see
-    # terraform/envs/lab/cloudfront.tf's data "aws_lb" comment for why this
-    # is a fixed, predictable name rather than an auto-generated one.
+    # Must match every other member of the group exactly.
     alb.ingress.kubernetes.io/load-balancer-name: minitube-app
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"

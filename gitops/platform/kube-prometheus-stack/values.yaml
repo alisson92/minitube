@@ -1,10 +1,7 @@
-# Static values for the kube-prometheus-stack chart
-# (https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack),
-# version pinned via var.kube_prometheus_stack_chart_version in
-# terraform/envs/lab/argocd.tf. grafana.serviceAccount.annotations (the IRSA
-# role ARN) is injected dynamically by that same Application via
-# `helm.parameters` -- it isn't known until Terraform creates the role, so
-# it can't live here.
+# Static values for the kube-prometheus-stack chart. grafana.serviceAccount
+# .annotations (the IRSA role ARN) is injected dynamically via
+# helm.parameters in terraform/envs/lab/argocd.tf instead -- not known
+# until Terraform creates the role.
 
 # EKS's control plane (scheduler/controller-manager/etcd) is managed by AWS
 # and not reachable for scraping -- leaving these enabled (the chart
@@ -19,11 +16,9 @@ kubeEtcd:
 
 prometheus:
   prometheusSpec:
-    # Discover ServiceMonitors/PrometheusRules from any namespace with any
-    # labels, not just ones carrying this release's `release: kube-prometheus-stack`
-    # label -- needed for gitops/app's future ServiceMonitor (minitube-app
-    # namespace) and this directory's own slo-rules.yaml/servicemonitor-api.yaml,
-    # none of which belong to this Helm release.
+    # Discover ServiceMonitors/PrometheusRules from any namespace/labels, not
+    # just this release's own -- needed for servicemonitor-api.yaml/
+    # slo-rules.yaml, neither of which belongs to this Helm release.
     serviceMonitorSelectorNilUsesHelmValues: false
     serviceMonitorNamespaceSelector: {}
     ruleSelectorNilUsesHelmValues: false
@@ -126,19 +121,11 @@ prometheusOperator:
       cpu: 200m
       memory: 256Mi
   admissionWebhooks:
-    # Default (patch.enabled: true, deployment.enabled: false) generates the
-    # webhook's TLS cert via a pair of Helm hook Jobs
-    # (admission-create/admission-patch) that ArgoCD doesn't track as its
-    # own hooks -- found on the first real sync: the Application got stuck
-    # OutOfSync, retrying forever ("Job ... is missing, it might have been
-    # deleted"), because ArgoCD's sync/prune cycle races the Job's own
-    # hook-delete-policy. cert-manager (already running in this cluster
-    # since Phase 4) replaces the Job entirely with a self-signed in-cluster
-    # Issuer + Certificate -- no external ClusterIssuer/ACME involved, pure
-    # internal PKI for this one webhook. deployment: true switches the
-    # operator to serve the webhook via its own native TLS support (a
-    # second, persistent Deployment) instead of the one-shot patch Job.
-    # See docs/adr/011-observability-stack.md.
+    # Default (patch.enabled, no certManager) generates the webhook's TLS
+    # cert via Helm hook Jobs that ArgoCD's sync/prune cycle races, leaving
+    # the Application permanently OutOfSync -- replaced with cert-manager
+    # issuing a self-signed cert instead, and a persistent Deployment
+    # serving the webhook natively. See docs/adr/011-observability-stack.md.
     certManager:
       enabled: true
     patch:

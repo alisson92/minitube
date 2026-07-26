@@ -58,12 +58,8 @@ spec:
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 20
-            # Liveness kills the container; a slow-but-alive pod under CPU
-            # pressure is not the same failure as an actually stuck process.
-            # Default (1s timeout, 3 failures) restarted multiple pods that
-            # were simply overloaded during a real load test, cutting
-            # capacity right when it was most needed. Widened well past the
-            # worst p95 observed at the HPA's maxReplicas ceiling (~2.4s) so
-            # transient overload can't trigger a kill on its own.
+            # Default (1s, 3 failures) killed pods that were simply
+            # overloaded during a real load test, cutting capacity when it
+            # was needed most. Widened past the worst p95 observed (~2.4s).
             timeoutSeconds: 5
             failureThreshold: 5

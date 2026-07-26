@@ -1,10 +1,7 @@
-# Catch-all (no host:) on purpose: app.<domain> is CloudFront's alias
-# (terraform/envs/lab/cloudfront.tf), which routes /api/* here uncached --
-# a host-based rule would collide with that Terraform-managed alias instead
-# of complementing it. Shares the same IngressGroup as
-# gitops/platform/argocd/ingress.yaml (group.name: minitube) so the
-# aws-load-balancer-controller provisions one ALB, not two. See
-# docs/adr/008-cloudfront-dns-tls.md.
+# Catch-all (no host:) on purpose: CloudFront routes /api/* here uncached
+# (terraform/envs/lab/cloudfront.tf); a host-based rule would collide with
+# that alias. Shares an IngressGroup with gitops/platform/argocd/ingress.yaml
+# so the LBC provisions one ALB, not two. See docs/adr/008-cloudfront-dns-tls.md.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -17,12 +14,9 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/group.name: minitube
-    # Higher number = lower priority. This rule has no host: (catch-all), so
-    # it must be evaluated LAST -- otherwise the ALB matches it before the
-    # host-specific argocd-server rule and every request (including
-    # argocd.<domain>) lands here instead. Discovered on the first real
-    # test: argocd.<domain> was silently served by this api backend
-    # (HTTP 404 from uvicorn) instead of ArgoCD.
+    # Higher number = lower priority. This catch-all rule must be evaluated
+    # LAST, or the ALB matches it before the host-specific argocd-server
+    # rule (found for real: argocd.<domain> got a 404 from this backend).
     alb.ingress.kubernetes.io/group.order: "20"
     # Set identically on gitops/platform/argocd/ingress.yaml -- must match
     # across every member of the group, so this predictable name (not an
@@ -31,14 +25,9 @@ metadata:
     alb.ingress.kubernetes.io/load-balancer-name: minitube-app
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
-    # Without this, the LBC defaults the target group health check to the
-    # Ingress path (/), which the API doesn't implement -- every target
-    # stayed unhealthy and every request through the ALB 502'd, discovered
-    # testing app.minitube.../api/ directly (the functional validation
-    # script never exercises this path -- it uploads via kubectl
-    # port-forward straight to the Service). /api/healthz, not /healthz:
-    # this health check hits the pod directly, and every route the app
-    # serves lives under /api (see app/api/main.py).
+    # Without this, the LBC defaults the health check to Ingress path (/),
+    # which the API doesn't implement -- every target 502'd. /api/healthz,
+    # not /healthz: every route this app serves lives under /api.
     alb.ingress.kubernetes.io/healthcheck-path: /api/healthz
     # Persistent ACM wildcard cert from terraform/bootstrap/dns.tf -- safe to
     # hardcode, same pattern as var.operator_role_arn. Re-fetch via

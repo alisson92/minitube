@@ -1,9 +1,6 @@
-# Static values for the aws-load-balancer-controller chart
-# (https://github.com/aws/eks-charts/tree/master/stable/aws-load-balancer-controller),
-# version pinned via var.aws_load_balancer_controller_chart_version in
-# terraform/envs/lab/argocd.tf. serviceAccount.annotations (the IRSA role
-# ARN) is injected dynamically by that same Application via `helm.parameters`
-# -- it isn't known until Terraform creates the role, so it can't live here.
+# Static values for the aws-load-balancer-controller chart.
+# serviceAccount.annotations (the IRSA role ARN) is injected dynamically
+# via helm.parameters -- not known until Terraform creates the role.
 clusterName: minitube-lab
 region: us-east-1
 
