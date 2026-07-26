@@ -8,10 +8,8 @@ import s3_client
 
 app = FastAPI(title="minitube-api")
 
-# CloudFront's /api/* cache behavior (terraform/envs/lab/cloudfront.tf)
-# forwards paths to the ALB unmodified -- the ALB Ingress controller doesn't
-# support path rewriting, so the app must serve every route under /api
-# itself to be reachable from the public app.<domain> URL.
+# CloudFront forwards /api/* to the ALB unmodified (no path rewriting), so
+# every route must actually live under /api to be reachable publicly.
 router = APIRouter(prefix="/api")
 
 
@@ -42,8 +40,6 @@ def get_video_status(video_id: str):
 
 app.include_router(router)
 
-# Exposed at /metrics (root, outside the /api prefix) -- only scraped
-# in-cluster by the Prometheus ServiceMonitor via the Service's ClusterIP,
-# never through CloudFront/the ALB (which only forward /api/*), so the
-# /api-prefix constraint above doesn't apply here.
+# /metrics stays outside the /api prefix -- only scraped in-cluster, never
+# through CloudFront/the ALB, so the constraint above doesn't apply here.
 Instrumentator().instrument(app).expose(app)

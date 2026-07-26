@@ -60,12 +60,11 @@ resource "aws_ssoadmin_account_assignment" "operator" {
   target_type = "AWS_ACCOUNT"
 }
 
-# Instance role for ephemeral EC2 smoke-test instances (SSM Session Manager
-# access, no SSH/bastion). Lives here, not in envs/lab, because PowerUserAccess
-# denies ALL IAM actions to the daily operator, including reads (verified:
-# iam:GetRole/GetInstanceProfile/PassRole all return AccessDenied). The inline
-# policy below grants back just enough to use this one role. Reusable across
-# future validation scripts (EKS, etc.), not just the VPC network test.
+# Instance role for ephemeral EC2 smoke-test instances (SSM only, no
+# SSH/bastion). Lives here, not envs/lab: PowerUserAccess denies ALL IAM
+# actions to the daily operator, including reads -- the inline policy below
+# grants back just enough to use this one role. Reusable across future
+# validation scripts, not just the VPC network test.
 resource "aws_iam_role" "network_smoke_test" {
   name = "${var.project}-network-smoke-test"
 
@@ -156,13 +155,10 @@ resource "aws_iam_role_policy_attachment" "eks_node_ecr" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly"
 }
 
-# PowerUserAccess has no IAM allowlist at all (unlike the AWS-documented
-# behavior of some other policies) — grant back only what's needed for each
-# resource the operator must pass a role for, nothing else in IAM.
-#
-# IAM Identity Center allows exactly one inline policy per permission set, so
-# every statement the operator needs lives here as a single resource — this
-# is edited (Sid added), never duplicated, as new roles are introduced.
+# PowerUserAccess grants no IAM access at all -- grant back only what's
+# needed per resource. IAM Identity Center allows exactly one inline policy
+# per permission set, so every statement lives here; new grants add a Sid,
+# never a duplicate resource.
 resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
   instance_arn       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
   permission_set_arn = aws_ssoadmin_permission_set.operator.arn
@@ -189,12 +185,8 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
           "iam:GetRole",
           "iam:PassRole",
           # CreateNodegroup checks the node role's attached managed policies
-          # as part of validation before creating the ASG -- discovered on a
-          # real apply once the daily operator (not CloudShell/root) became
-          # the one calling CreateNodegroup. Same class of gap as
-          # ListAttachedRolePolicies under ManageAppIrsaRoles below, just
-          # surfaced on a role this policy only ever granted GetRole/PassRole
-          # for before.
+          # before creating the ASG -- only surfaced once the daily operator
+          # (not CloudShell/root) called CreateNodegroup directly.
           "iam:ListAttachedRolePolicies",
         ]
         Resource = [
@@ -203,14 +195,9 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
         ]
       },
       {
-        # CreateNodegroup also validates that the eks-nodegroup service-linked
-        # role already exists by calling iam:GetRole on it directly -- a
-        # separate check from PassEksRoles above (that one only covers the
-        # cluster/node roles themselves, not this AWS-managed SLR). Read-only,
-        # scoped to the two EKS service-linked roles this project's
-        # aws_iam_service_linked_role resources manage (eks.tf/main.tf),
-        # regardless of whether create_eks_service_linked_roles is currently
-        # true or false for this session.
+        # CreateNodegroup also validates the eks-nodegroup service-linked
+        # role exists via iam:GetRole -- a separate check from PassEksRoles
+        # above, which only covers the cluster/node roles themselves.
         Sid    = "ReadEksServiceLinkedRoles"
         Effect = "Allow"
         Action = [
@@ -222,12 +209,10 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
         ]
       },
       {
-        # Lets the daily operator create/manage the app's IRSA role directly
-        # in envs/lab, where it must live (its trust policy is bound to the
-        # cluster's OIDC provider, which is recreated every session). Scoped
-        # by name prefix, not by a specific ARN, since the role itself is
-        # ephemeral and doesn't exist yet when this statement is written.
-        # See docs/adr/006-app-irsa-and-job-orchestration.md.
+        # Lets the operator manage the app's IRSA role in envs/lab, where it
+        # must live (trust policy bound to the per-session OIDC provider).
+        # Scoped by name prefix since the role is ephemeral. See
+        # docs/adr/006-app-irsa-and-job-orchestration.md.
         Sid    = "ManageAppIrsaRoles"
         Effect = "Allow"
         Action = [
@@ -238,31 +223,24 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
           "iam:DeleteRolePolicy",
           "iam:GetRolePolicy",
           "iam:ListRolePolicies",
-          # Refreshing an aws_iam_role also checks managed-policy attachments,
-          # even when none are attached (as here — only an inline policy is
-          # used). Missing this action surfaced as a 403 on the operator's
-          # first plan against an already-created role.
+          # Refreshing an aws_iam_role checks managed-policy attachments even
+          # when none exist -- 403 on the operator's first plan without it.
           "iam:ListAttachedRolePolicies",
           "iam:TagRole",
           "iam:UntagRole",
-          # aws_iam_role deletion also checks for attached instance profiles,
-          # even though this role never has one — same class of gap as
-          # ListAttachedRolePolicies above, surfaced this time on `destroy`
-          # instead of `plan`.
+          # Same class of gap as ListAttachedRolePolicies, surfaced on
+          # `destroy` instead of `plan`: deletion checks instance profiles too.
           "iam:ListInstanceProfilesForRole",
         ]
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-app-*"
       },
       {
-        # aws_iam_openid_connect_provider.lab (envs/lab/eks.tf) has existed
-        # since Phase 1, but every plan/apply that touched it ran via
-        # CloudShell/root — this gap was never exposed until the daily
-        # operator tried to plan envs/lab against a state where the provider
-        # already exists. Any `terraform plan` refreshes resources already in
-        # state, which for an IAM resource requires an explicit read grant
-        # like the ones above, not just create/destroy. The provider's ARN
-        # embeds a per-cluster ID assigned by AWS (not a predictable name),
-        # so it's scoped by account/region/service instead of by exact ARN.
+        # Any `terraform plan` refreshes resources already in state, which
+        # for an IAM resource needs an explicit read grant, not just
+        # create/destroy -- only exposed once the daily operator (not
+        # CloudShell/root) planned against an existing provider. Its ARN
+        # embeds a per-cluster ID, so scoped by account/region/service
+        # instead of an exact ARN.
         Sid    = "ManageEksOidcProvider"
         Effect = "Allow"
         Action = [
@@ -276,12 +254,9 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.eks.${var.aws_region}.amazonaws.com/id/*"
       },
       {
-        # Same rationale as ManageAppIrsaRoles above, for the 3 platform
-        # add-on IRSA roles (aws-load-balancer-controller, external-dns,
-        # cert-manager) created in envs/lab/iam-platform.tf. A separate name
-        # prefix (minitube-platform-* vs minitube-app-*) keeps the two grants
-        # independently auditable even though the actions are identical.
-        # See docs/adr/008-cloudfront-dns-tls.md.
+        # Same rationale as ManageAppIrsaRoles, for the platform add-ons'
+        # IRSA roles. Separate name prefix keeps the two grants
+        # independently auditable. See docs/adr/008-cloudfront-dns-tls.md.
         Sid    = "ManagePlatformIrsaRoles"
         Effect = "Allow"
         Action = [
@@ -300,15 +275,11 @@ resource "aws_ssoadmin_permission_set_inline_policy" "operator_pass_roles" {
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-platform-*"
       },
       {
-        # The EBS CSI driver's IRSA role (envs/lab/iam-platform.tf) attaches
-        # the AWS-managed AmazonEBSCSIDriverPolicy instead of an inline
-        # policy -- the AWS-documented way to grant this driver, unlike the
-        # other platform add-ons above which all use inline policies.
-        # ManagePlatformIrsaRoles only covers inline-policy actions
-        # (PutRolePolicy/DeleteRolePolicy), not managed-policy attach/detach.
-        # The iam:PolicyARN condition pins this to exactly that one managed
-        # policy, so this grant can't be used to attach anything broader
-        # (e.g. AdministratorAccess) to a platform-* role.
+        # EBS CSI driver's IRSA role attaches the AWS-managed
+        # AmazonEBSCSIDriverPolicy instead of an inline policy, unlike the
+        # other add-ons -- ManagePlatformIrsaRoles doesn't cover managed-
+        # policy attach/detach. iam:PolicyARN pins this to exactly that
+        # policy, so it can't attach anything broader to a platform-* role.
         Sid    = "AttachEbsCsiManagedPolicy"
         Effect = "Allow"
         Action = [

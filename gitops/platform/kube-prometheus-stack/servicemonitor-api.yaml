@@ -1,10 +1,7 @@
-# Scrapes app/api's /metrics (exposed via prometheus-fastapi-instrumentator,
-# see app/api/main.py) for the SLO rules in slo-rules.yaml and the "dia do
-# jogo" dashboard's latency panels. Lives here (minitube-platform), not next
-# to the Service it targets (minitube-app) -- the AppProject
-# minitube-platform doesn't allow minitube-app as a sync destination, but a
-# ServiceMonitor doesn't need to: namespaceSelector below points it at the
-# Service's real namespace regardless of where this CR itself is created.
+# Scrapes app/api's /metrics for slo-rules.yaml and the game day dashboard.
+# Lives here (minitube-platform), not next to the Service it targets
+# (minitube-app) -- namespaceSelector below points it at the Service's real
+# namespace regardless of where this CR is created.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

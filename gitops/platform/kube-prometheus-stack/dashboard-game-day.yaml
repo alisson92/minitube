@@ -1,22 +1,12 @@
-# The "dia do jogo" dashboard referenced since Phase 5 (ADR 011) as the
-# completion criterion was built ad hoc in the Grafana UI back then and
-# never committed -- with grafana.persistence.enabled: false (values.yaml,
-# on purpose: no Grafana state should survive a session that isn't code),
-# it silently disappeared the next time terraform/envs/lab was recreated.
-# Found in Phase 6 while gathering screenshots for the final report. This
-# ConfigMap is the fix: provisioned via the sidecar (grafana.sidecar.dashboards,
-# label grafana_dashboard) like any other dashboard should have been from
-# the start, so it survives every future apply/destroy cycle.
+# The "game day" dashboard (Phase 5 completion criterion, ADR 011) was
+# built ad hoc in the Grafana UI and never committed -- with
+# grafana.persistence.enabled: false, it disappeared on every recreate.
+# This ConfigMap (provisioned via the sidecar, grafana_dashboard label)
+# fixes that, surviving every future apply/destroy cycle.
 #
-# The two CloudWatch panels (CDN hit ratio, ALB errors) depend on
-# per-session resource IDs (CloudFront distribution, ALB) resolved via the
-# $distribution_id/$load_balancer template variables below -- verify they
-# populate correctly against a real cluster; this was authored without live
-# access to check. CDN hit ratio specifically requires CloudFront
-# "Additional metrics" enabled on the distribution (extra cost, not
-# currently enabled by terraform/envs/lab/cloudfront.tf) -- if it shows "No
-# data", that's why; the CDN hit ratio was already confirmed by other means
-# (X-Cache header) in scripts/validate-cloudfront-dns-tls.sh.
+# CDN hit ratio needs CloudFront "Additional metrics" enabled (extra cost,
+# not currently on) -- shows "No data" without it; already confirmed by
+# other means (X-Cache header) in scripts/validate-cloudfront-dns-tls.sh.
 apiVersion: v1
 kind: ConfigMap
 metadata:

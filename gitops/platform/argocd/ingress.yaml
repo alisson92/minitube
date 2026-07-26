@@ -1,9 +1,7 @@
-# Routes argocd.<domain> straight to the shared ALB -- no CloudFront in
-# front of it (ArgoCD is an internal operational tool, doesn't need edge
-# caching, and keeps the CloudFront distribution's dynamic behavior limited
-# to just /api/*). Shares the same IngressGroup as gitops/app/ingress.yaml
-# (group.name: minitube) so the aws-load-balancer-controller provisions a
-# single ALB for both, not two. See docs/adr/008-cloudfront-dns-tls.md.
+# Routes argocd.<domain> straight to the shared ALB, no CloudFront in
+# front (internal tool, no edge caching needed). Shares an IngressGroup
+# with gitops/app/ingress.yaml so the LBC provisions one ALB, not two.
+# See docs/adr/008-cloudfront-dns-tls.md.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -15,16 +13,12 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/group.name: minitube
-    # Lower number = higher priority. This rule is host-specific, so it must
-    # be evaluated BEFORE gitops/app/ingress.yaml's catch-all (order 20) --
-    # otherwise the catch-all matches every request first, including this
-    # host, and ArgoCD becomes unreachable (discovered on the first real
-    # test).
+    # Lower number = higher priority -- must be evaluated BEFORE
+    # gitops/app/ingress.yaml's catch-all (order 20), or ArgoCD becomes
+    # unreachable behind it.
     alb.ingress.kubernetes.io/group.order: "10"
     # Must match gitops/app/ingress.yaml exactly -- shared-ALB annotations
-    # need to agree across every member of the group. See
-    # terraform/envs/lab/cloudfront.tf's data "aws_lb" comment for why this
-    # is a fixed, predictable name rather than an auto-generated one.
+    # need to agree across the group.
     alb.ingress.kubernetes.io/load-balancer-name: minitube-app
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"

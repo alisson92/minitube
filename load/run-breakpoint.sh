@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
-# Orchestrates the Phase 6 breakpoint test: finds (or creates) a real,
-# already-transcoded test video, then runs load/k6/breakpoint.js against it,
-# escalating load until it actually breaks (or completes cleanly, meaning
-# the current PEAK_RATE wasn't enough to find the ceiling). See
-# docs/runbooks/load/run-k6-breakpoint.md for how this differs from
-# load/run-baseline.sh and how to read/escalate the result.
+# Finds (or creates) a real, already-transcoded test video, then runs
+# load/k6/breakpoint.js against it, escalating load until it actually
+# breaks (or completes cleanly, meaning PEAK_RATE wasn't enough to find the
+# ceiling). See docs/runbooks/load/run-k6-breakpoint.md.
 #
 # Usage: AWS_PROFILE=cloudlab ./load/run-breakpoint.sh
-# Escalate across runs by raising the peak: PEAK_RATE=800 AWS_PROFILE=cloudlab ./load/run-breakpoint.sh
-# Can be run from anywhere -- paths below are relative to this script's own
-# location, not the caller's cwd.
+# Escalate across runs: PEAK_RATE=800 AWS_PROFILE=cloudlab ./load/run-breakpoint.sh
 # Requires: k6, aws, jq, terraform, kubectl, curl, ffmpeg in PATH; terraform
-# apply already ran in terraform/envs/lab and ArgoCD has synced gitops/app/
-# (see docs/runbooks/validate/validate-transcoding.md).
+# apply already ran and ArgoCD has synced gitops/app/.
 
 set -euo pipefail
 

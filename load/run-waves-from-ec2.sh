@@ -1,17 +1,9 @@
 #!/usr/bin/env bash
-# Same test as load/k6/waves.js, but the k6 process itself runs from an
-# ephemeral EC2 instance inside the lab VPC instead of the operator's local
-# machine -- same reasoning as load/run-breakpoint-from-ec2.sh (see
-# docs/runbooks/load/run-k6-breakpoint.md, section "Investigacao da latencia"):
-# a client running over WSL2/home ISP adds latency noise the server side
-# never sees, which would make a wave's "recovery" stage impossible to read
-# correctly.
-#
-# Reuses the same ephemeral-EC2-via-SSM pattern as
-# terraform/envs/lab/scripts/validate-network.sh and
-# load/run-breakpoint-from-ec2.sh (private subnet, no public IP, instance
-# always terminated on exit) and the exact same IAM instance profile -- no
-# new Terraform resources needed.
+# Same test as load/k6/waves.js, but k6 runs from an ephemeral EC2 instance
+# in the lab VPC -- same reasoning as run-breakpoint-from-ec2.sh (client
+# network noise would make the "recovery" stage impossible to read
+# correctly). Reuses the same ephemeral-EC2-via-SSM pattern and IAM
+# instance profile -- no new Terraform resources needed.
 #
 # Usage: AWS_PROFILE=cloudlab ./load/run-waves-from-ec2.sh
 # Escalate the deliberate peak: WAVE_PEAK_RATE=1000 AWS_PROFILE=cloudlab ./load/run-waves-from-ec2.sh

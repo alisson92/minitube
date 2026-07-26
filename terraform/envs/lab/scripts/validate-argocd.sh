@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
-# Functional smoke test for ArgoCD: proves it's not just "helm_release exited
-# 0 and pods are Running", but that it's actually reconciling gitops/ from
-# Git -- pull-based, continuously. The central check (d) introduces a manual
-# drift (kubectl scale) and confirms ArgoCD's selfHeal reverts it on its own,
-# with no `kubectl apply` run anywhere in this script -- the real proof of
-# the OpenGitOps "applied by pull" + "continuously reconciled" principles.
+# Functional smoke test for ArgoCD: proves it's actually reconciling
+# gitops/ from Git, not just "pods are Running". Check (d) introduces a
+# manual drift and confirms selfHeal reverts it with no `kubectl apply`
+# anywhere in this script -- the OpenGitOps "pull + continuously
+# reconciled" principles, proven, not assumed.
 #
 # Usage: AWS_PROFILE=cloudlab ./scripts/validate-argocd.sh
-# Run from terraform/envs/lab/ (the script also cds there automatically).
-# Requires: terraform apply already ran (ArgoCD + the two root Applications
-# come up from terraform/envs/lab/argocd.tf) -- see
+# Requires terraform apply already ran -- see
 # docs/runbooks/validate/validate-argocd-gitops.md.
 
 set -euo pipefail

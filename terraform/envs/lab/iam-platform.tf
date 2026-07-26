@@ -1,9 +1,7 @@
-# IRSA roles for the 3 platform add-ons (aws-load-balancer-controller,
-# external-dns, cert-manager). Live here, not in bootstrap-iam, for the same
-# reason as aws_iam_role.app (iam-app.tf): their trust policy is bound to
+# IRSA roles for the platform add-ons. Live here, not in bootstrap-iam, for
+# the same reason as aws_iam_role.app (iam-app.tf): trust policy bound to
 # this cluster's OIDC provider, recreated every session. Requires the
-# "ManagePlatformIrsaRoles" grant in terraform/bootstrap-iam/main.tf, scoped
-# by the "${var.project}-platform-*" name prefix. See
+# "ManagePlatformIrsaRoles" grant in terraform/bootstrap-iam/main.tf. See
 # docs/adr/008-cloudfront-dns-tls.md.
 locals {
   platform_service_accounts = {
@@ -179,13 +177,10 @@ resource "aws_iam_role" "grafana" {
   })
 }
 
-# Read-only access for the CloudWatch datasource
-# (gitops/platform/kube-prometheus-stack/values.yaml) -- CDN hit ratio
-# (CloudFront) and ALB error rate live in CloudWatch, not Prometheus. No
-# CloudWatchReadOnlyAccess managed policy here (too broad, e.g. includes
-# Logs/X-Ray/Synthetics) -- scoped to exactly what the Grafana CloudWatch
-# plugin's docs list as required. These read-only metric actions don't
-# support resource-level scoping, hence Resource = "*".
+# Read-only access for the CloudWatch datasource -- CDN hit ratio and ALB
+# errors live there, not in Prometheus. Scoped to exactly what Grafana's
+# CloudWatch plugin needs, not the broader CloudWatchReadOnlyAccess managed
+# policy. These actions don't support resource-level scoping.
 resource "aws_iam_role_policy" "grafana" {
   name = "${var.project}-platform-grafana-policy"
   role = aws_iam_role.grafana.id

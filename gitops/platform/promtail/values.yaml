@@ -1,13 +1,7 @@
-# Static values for the promtail chart
-# (https://github.com/grafana/helm-charts/tree/main/charts/promtail),
-# version pinned via var.promtail_chart_version in
-# terraform/envs/lab/argocd.tf. Ships every node's container logs to Loki --
-# Loki alone doesn't collect anything. No IRSA role: promtail only talks to
-# the in-cluster loki Service, never the AWS API.
-#
-# Promtail is upstream maintenance-mode (superseded by Grafana Alloy) but
-# remains the simplest, best-documented log agent for a single-binary Loki
-# -- fine for a lab, revisit if Alloy's docs mature.
+# Static values for the promtail chart. Ships every node's container logs
+# to Loki -- Loki alone doesn't collect anything. No IRSA role: only talks
+# to the in-cluster loki Service. Upstream maintenance-mode (superseded by
+# Grafana Alloy) but simplest option for a single-binary Loki.
 config:
   clients:
     # loki/values.yaml disables the gateway (gateway.enabled: false) -- talk

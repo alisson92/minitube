@@ -1,8 +1,5 @@
-# Static values for the external-dns chart
-# (https://github.com/kubernetes-sigs/external-dns/tree/master/charts/external-dns),
-# version pinned via var.external_dns_chart_version in
-# terraform/envs/lab/argocd.tf. serviceAccount.annotations (the IRSA role
-# ARN) is injected dynamically by that same Application via `helm.parameters`.
+# Static values for the external-dns chart. serviceAccount.annotations (the
+# IRSA role ARN) is injected dynamically via helm.parameters instead.
 provider:
   name: aws
 

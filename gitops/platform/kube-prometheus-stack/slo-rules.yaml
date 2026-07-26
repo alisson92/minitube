@@ -1,8 +1,6 @@
-# SLOs for the "dia do jogo" dashboard (Phase 5 completion criterion,
-# CLAUDE.md). The latency thresholds below were revised in Phase 6 with
-# real k6 data (see docs/runbooks/load/run-k6-breakpoint.md and
-# run-k6-waves.md), replacing the original 500ms placeholder from Phase 5
-# (docs/adr/011-observability-stack.md), which predates any load test.
+# SLOs for the "game day" dashboard. Latency thresholds revised with real
+# k6 data (docs/runbooks/load/run-k6-breakpoint.md), replacing the original
+# 500ms placeholder (docs/adr/011-observability-stack.md).
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -23,13 +21,9 @@ spec:
           annotations:
             summary: "API sem réplicas disponíveis por mais de 5 minutos"
         - alert: APILatencyWarning
-          # Requires app/api's /metrics (prometheus-fastapi-instrumentator,
-          # scraped via servicemonitor-api.yaml). 250ms sits comfortably
-          # above every normal-operation p95 observed in Phase 6 (baseline:
-          # 50-190ms; breakpoint at PEAK_RATE=400, post-HPA: 48ms) -- this
-          # fires while the API is still healthy but trending up, before it
-          # reaches the point where the HPA's own ceiling starts queueing
-          # requests (see APILatencyCritical below).
+          # 250ms sits comfortably above every normal-operation p95 observed
+          # (baseline: 50-190ms; post-HPA breakpoint: 48ms) -- fires while
+          # still healthy but trending up, before APILatencyCritical below.
           expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler=~"/api.*"}[5m])) by (le)) > 0.25
           for: 5m
           labels:
@@ -38,10 +32,8 @@ spec:
             summary: "Latência p95 da API acima de 250ms por mais de 5 minutos"
         - alert: APILatencyCritical
           # 800ms matches the confirmed onset of real queueing at the HPA's
-          # current maxReplicas:6 ceiling (breakpoint at PEAK_RATE=800:
-          # p95=1.04s, http_req_failed still 0% -- genuine backpressure, not
-          # errors yet, see docs/runbooks/load/run-k6-breakpoint.md). Below this,
-          # PEAK_RATE=400 held clean at p95=48ms with plenty of headroom.
+          # maxReplicas:6 ceiling -- genuine backpressure, not errors (0%
+          # http_req_failed). See docs/runbooks/load/run-k6-breakpoint.md.
           expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler=~"/api.*"}[5m])) by (le)) > 0.8
           for: 5m
           labels:

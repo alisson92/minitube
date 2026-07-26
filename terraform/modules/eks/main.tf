@@ -1,13 +1,10 @@
-# authentication_mode = "API" uses IAM access entries instead of the legacy
-# aws-auth ConfigMap — the current AWS-recommended mode for new clusters.
-# bootstrap_cluster_creator_admin_permissions is explicitly false: when true,
-# EKS auto-creates a hidden access entry for whichever identity calls
-# CreateCluster, which collides (409 ResourceInUseException) with the
-# explicit aws_eks_access_entry.operator below whenever that identity happens
-# to be the same as var.operator_role_arn (e.g. cloudlab-operator applying
-# the caller module itself, as opposed to a CloudShell/root session). Keeping
-# it false means access is 100% declared by Terraform, deterministically,
-# regardless of who runs apply — no race, no import workaround needed.
+# authentication_mode = "API" uses IAM access entries, not the legacy
+# aws-auth ConfigMap. bootstrap_cluster_creator_admin_permissions is
+# explicitly false: when true, EKS auto-creates a hidden access entry for
+# whoever calls CreateCluster, colliding (409 ResourceInUseException) with
+# the explicit aws_eks_access_entry.operator below whenever that's the same
+# identity as var.operator_role_arn. Keeping it false makes access 100%
+# declared by Terraform, regardless of who runs apply.
 resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
   role_arn = var.cluster_role_arn
@@ -82,15 +79,9 @@ resource "aws_iam_openid_connect_provider" "this" {
 }
 
 # Explicit access entry: cluster-admin for the daily operator, regardless of
-# who created the cluster (see comment on the cluster resource above).
-# var.operator_role_arn is a fixed ARN, resolved by the caller, rather than
-# looked up dynamically via `data "aws_iam_session_context"` on purpose: that
-# data source itself calls iam:GetRole against the SSO-managed role, an IAM
-# read PowerUserAccess denies and that falls outside the minitube-app-*
-# grant — resolving it would mean chasing yet another IAM permission for a
-# role Terraform doesn't manage. A fixed ARN needs no new grant at all
-# (eks:CreateAccessEntry/AssociateAccessPolicy aren't IAM actions, so
-# PowerUserAccess already allows this part).
+# who created the cluster. var.operator_role_arn is a fixed ARN rather than
+# resolved dynamically via `data "aws_iam_session_context"` on purpose: that
+# data source itself calls iam:GetRole, an IAM read PowerUserAccess denies.
 resource "aws_eks_access_entry" "operator" {
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = var.operator_role_arn
@@ -107,19 +98,11 @@ resource "aws_eks_access_policy_association" "operator_admin" {
   }
 }
 
-# EKS access entries return success from CreateAccessEntry/AssociateAccessPolicy
-# in ~1s, but the control plane's authorizer takes some extra seconds to
-# actually start accepting the new principal -- there's no describe/wait
-# call exposed by the API to confirm propagation. This never surfaced while
-# bootstrap_cluster_creator_admin_permissions was true, because that grant is
-# baked into cluster creation itself (~10 minutes, plenty of time to
-# propagate); now that access is 100% explicit (see comment on
-# aws_eks_cluster.this above), nothing else buffers that delay. Callers that
-# create Kubernetes/Helm resources as the operator (argocd.tf, in the root
-# module) depend_on this whole module to inherit this wait, instead of
-# reaching in for this resource specifically -- see
-# docs/adr/013-terraform-vpc-eks-modules.md for why module-level depends_on
-# replaced the hand-enumerated resource list this project used before.
+# EKS access entries return success in ~1s, but the control plane's
+# authorizer takes a few extra seconds to actually accept the new principal
+# -- no describe/wait call exists to confirm propagation. Callers creating
+# Kubernetes/Helm resources as the operator depend_on this whole module to
+# inherit this wait. See docs/adr/013-terraform-vpc-eks-modules.md.
 resource "time_sleep" "operator_access_propagation" {
   depends_on      = [aws_eks_access_entry.operator, aws_eks_access_policy_association.operator_admin]
   create_duration = "30s"

@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
-# Functional smoke test for Phase 5: proves kube-prometheus-stack and Loki
-# don't just report Synced+Healthy from ArgoCD, but actually work end to
-# end -- PVCs really bound via the new EBS CSI driver, Prometheus really has
-# scrape targets up, Loki really receives and serves real log lines shipped
-# by Promtail, and the API's own /metrics (instrumented this phase) is
-# really being scraped. Mirrors the "existe vs. funciona" principle from
-# docs/engineering-standards.md §11.
+# Functional smoke test: proves kube-prometheus-stack and Loki don't just
+# report Synced+Healthy, but actually work -- PVCs bound, Prometheus
+# scraping real targets (including the API's own /metrics), Grafana
+# reachable, Loki serving real log lines shipped by Promtail. Mirrors
+# "existe vs. funciona" (docs/engineering-standards.md §11).
 #
 # Usage: AWS_PROFILE=cloudlab ./scripts/validate-observability.sh
-# Run from terraform/envs/lab/ (the script also cds there automatically).
-# Requires: terraform apply already ran (node sizing, the 2 new IRSA roles,
-# and the 4 new Applications come from terraform/envs/lab/argocd.tf,
-# iam-platform.tf and variables.tf) and ArgoCD has finished syncing the
+# Requires terraform apply already ran and ArgoCD finished syncing the
 # add-ons -- see docs/runbooks/validate/validate-observability.md.
 
 set -euo pipefail
@@ -105,10 +100,7 @@ run_check "All PVCs in ${PLATFORM_NAMESPACE} reach Bound (up to ${PVC_TIMEOUT_SE
   poll_until "$PVC_TIMEOUT_SECONDS" "PVC binding" pvcs_bound || overall=1
 kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" get pvc || true
 
-# (b) Prometheus has scrape targets up (proves kubeScheduler/kubeControllerManager/
-# kubeEtcd: false actually worked -- a stray true here would show as
-# permanently-down targets, not a hard failure, so this check also greps
-# for zero down targets among what's left enabled).
+# (b) Prometheus has zero down scrape targets among what's enabled.
 echo "Starting port-forward to Prometheus on localhost:${PROMETHEUS_PORT}..."
 kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" port-forward svc/kube-prometheus-stack-prometheus "${PROMETHEUS_PORT}:9090" >/dev/null 2>&1 &
 prometheus_pf_pid=$!

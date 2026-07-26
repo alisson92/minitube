@@ -1,20 +1,15 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
 
-// Phase 6 baseline scenario: deliberately small/growing load against the
-// CURRENT setup -- API Deployment fixed at 1 replica, EKS node group fixed
-// at 3/3/3, no HPA/Cluster Autoscaler (see gitops/app/deployment.yaml and
-// terraform/envs/lab/variables.tf). The goal is to observe what breaks first
-// with no scaling mitigation in place, before deciding what to add. See
-// docs/runbooks/load/run-k6-baseline.md for how this fits into the rest of the
-// phase and how to read the result.
+// Deliberately small/growing load, meant to observe what breaks first
+// before deciding what scaling mitigation to add. See
+// docs/runbooks/load/run-k6-baseline.md.
 //
 // Two scenarios run in parallel, mirroring the two traffic flows in the
-// architecture (CLAUDE.md): most requests should die at CloudFront ("viewers"),
-// while a much smaller volume of dynamic traffic reaches the API through the
-// ALB ("api_dynamic"). Video upload/transcoding is intentionally NOT part of
-// this baseline -- spinning up concurrent transcode Jobs is a heavier,
-// separate stress scenario, not a small/growing baseline one.
+// architecture (CLAUDE.md): most requests should die at CloudFront
+// ("viewers"), a much smaller volume reaches the API via the ALB
+// ("api_dynamic"). Video upload/transcoding is intentionally out of scope
+// here -- concurrent transcode Jobs are a heavier, separate stress scenario.
 
 const BASE_URL = __ENV.BASE_URL;
 const VIDEO_ID = __ENV.VIDEO_ID;
@@ -52,9 +47,7 @@ export const options = {
     http_req_failed: ["rate<0.01"],
     "http_req_duration{endpoint:playlist}": ["p(95)<500"],
     "http_req_duration{endpoint:segment}": ["p(95)<500"],
-    // matches APILatencyWarning in gitops/platform/kube-prometheus-stack/slo-rules.yaml --
-    // revised in Phase 6 from the original 500ms placeholder using this
-    // script's own first result (p95=186ms) plus the breakpoint/waves data.
+    // Matches APILatencyWarning in slo-rules.yaml.
     "http_req_duration{endpoint:api}": ["p(95)<250"],
   },
 };

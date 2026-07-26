@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 # Chaos experiment: kills one running replica of the "api" Deployment while
-# generating light traffic against it, then measures the real client-facing
-# error rate through the outage. Proves minReplicas:2 (gitops/app/hpa.yaml)
-# + the PodDisruptionBudget (gitops/app/pdb.yaml) actually absorb a single
-# pod loss without a visible availability dip -- not just that the objects
-# exist, same "existe vs. funciona" principle as every other functional
-# validation in this repo (docs/engineering-standards.md §11).
-#
-# Nothing here needs reverting: the ReplicaSet recreating the deleted pod
-# *is* the behavior under test, not a side effect to undo. The only cleanup
-# is the local traffic-generator loop and the ephemeral kubeconfig.
+# generating light traffic, measuring the real client-facing error rate.
+# Proves minReplicas:2 + the PodDisruptionBudget actually absorb a pod loss,
+# not just that the objects exist (docs/engineering-standards.md §11).
+# Nothing needs reverting -- the ReplicaSet recreating the pod *is* the
+# behavior under test. Cleanup only covers the local traffic loop/kubeconfig.
 #
 # Usage: AWS_PROFILE=cloudlab ./chaos/kill-api-pod.sh
 # See docs/runbooks/chaos/chaos-kill-api-pod.md for what to expect and how to read
