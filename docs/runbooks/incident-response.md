@@ -123,10 +123,10 @@ curl -sf "$(terraform -chdir=terraform/envs/lab output -raw app_url)/api/healthz
 
 | Sintoma | Causa provável | Ação |
 | --- | --- | --- |
-| `APIAvailabilitySLOBreach` disparado, poucos pods `Running` | Perda de um ou mais pods da API (deploy, OOM, node) | Comparar com [`docs/runbooks/chaos-kill-api-pod.md`](chaos-kill-api-pod.md) — se a recuperação não seguiu o padrão esperado (nova réplica `Ready` em segundos), investigar `kubectl describe pod`/eventos |
-| Pods `Pending` em massa, nodes com pouca capacidade | Perda de um node spot, ou HPA escalando além da capacidade dos nodes restantes | Comparar com [`docs/runbooks/chaos-drain-spot-node.md`](chaos-drain-spot-node.md) — checar `kubectl get nodes`, se `desired_size` (Terraform) bate com o número real de nodes `Ready` |
-| `APILatencySLOBreach` disparado, réplicas todas `Ready` | Saturação de CPU sob carga (o HPA ainda não escalou o suficiente, ou o teto real de capacidade foi atingido) | Ver [`docs/runbooks/run-k6-breakpoint.md`](run-k6-breakpoint.md) para o teto de capacidade conhecido; `kubectl top pods -n minitube-app` |
-| Dashboards/alertas não aparecem, mas a aplicação responde normalmente | Stack de observabilidade fora do ar (não é, por si, uma indisponibilidade da aplicação) | Comparar com [`docs/runbooks/chaos-disable-observability-stack.md`](chaos-disable-observability-stack.md) — confirmar que o impacto está mesmo contido à telemetria, não à aplicação |
+| `APIAvailabilitySLOBreach` disparado, poucos pods `Running` | Perda de um ou mais pods da API (deploy, OOM, node) | Comparar com [`docs/runbooks/chaos/chaos-kill-api-pod.md`](chaos/chaos-kill-api-pod.md) — se a recuperação não seguiu o padrão esperado (nova réplica `Ready` em segundos), investigar `kubectl describe pod`/eventos |
+| Pods `Pending` em massa, nodes com pouca capacidade | Perda de um node spot, ou HPA escalando além da capacidade dos nodes restantes | Comparar com [`docs/runbooks/chaos/chaos-drain-spot-node.md`](chaos/chaos-drain-spot-node.md) — checar `kubectl get nodes`, se `desired_size` (Terraform) bate com o número real de nodes `Ready` |
+| `APILatencySLOBreach` disparado, réplicas todas `Ready` | Saturação de CPU sob carga (o HPA ainda não escalou o suficiente, ou o teto real de capacidade foi atingido) | Ver [`docs/runbooks/load/run-k6-breakpoint.md`](load/run-k6-breakpoint.md) para o teto de capacidade conhecido; `kubectl top pods -n minitube-app` |
+| Dashboards/alertas não aparecem, mas a aplicação responde normalmente | Stack de observabilidade fora do ar (não é, por si, uma indisponibilidade da aplicação) | Comparar com [`docs/runbooks/chaos/chaos-disable-observability-stack.md`](chaos/chaos-disable-observability-stack.md) — confirmar que o impacto está mesmo contido à telemetria, não à aplicação |
 | `Application` do ArgoCD em `OutOfSync`/`Degraded` | Erro de sync (CRD grande demais, webhook, etc.) | `kubectl -n argocd get application <nome> -o yaml`, ver `status.conditions` — classes de bug já catalogadas nos ADRs 007-011 |
 | `/api/*` responde 502/404 só via CloudFront, mas funciona via `port-forward` | Problema de roteamento de borda (ALB, CloudFront origin, DNS) — não é um bug de aplicação | Ver ADR 009 (decisões 3-4) para a classe de bug já resolvida uma vez nesta arquitetura |
 
@@ -135,8 +135,8 @@ curl -sf "$(terraform -chdir=terraform/envs/lab output -raw app_url)/api/healthz
 ## Referências
 
 - [`gitops/platform/kube-prometheus-stack/slo-rules.yaml`](../../gitops/platform/kube-prometheus-stack/slo-rules.yaml) — definição dos dois alertas.
-- [`docs/runbooks/chaos-kill-api-pod.md`](chaos-kill-api-pod.md), [`chaos-drain-spot-node.md`](chaos-drain-spot-node.md), [`chaos-disable-observability-stack.md`](chaos-disable-observability-stack.md) — cenários treinados.
-- [`docs/runbooks/run-k6-breakpoint.md`](run-k6-breakpoint.md), [`run-k6-waves.md`](run-k6-waves.md) — comportamento sob carga.
-- [`docs/runbooks/validate-observability.md`](validate-observability.md) — como validar a stack de observabilidade do zero.
+- [`docs/runbooks/chaos/chaos-kill-api-pod.md`](chaos/chaos-kill-api-pod.md), [`chaos-drain-spot-node.md`](chaos/chaos-drain-spot-node.md), [`chaos-disable-observability-stack.md`](chaos/chaos-disable-observability-stack.md) — cenários treinados.
+- [`docs/runbooks/load/run-k6-breakpoint.md`](load/run-k6-breakpoint.md), [`run-k6-waves.md`](load/run-k6-waves.md) — comportamento sob carga.
+- [`docs/runbooks/validate/validate-observability.md`](validate/validate-observability.md) — como validar a stack de observabilidade do zero.
 - [`docs/adr/012-hpa-cpu-autoscaling.md`](../adr/012-hpa-cpu-autoscaling.md) — dimensionamento do HPA.
 - ADRs 007-011 — catálogo de bugs reais já encontrados nesta arquitetura (ArgoCD, roteamento de borda, observabilidade).

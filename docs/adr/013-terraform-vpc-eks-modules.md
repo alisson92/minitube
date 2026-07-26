@@ -39,7 +39,7 @@ Antes, `local.oidc_provider_url = replace(aws_iam_openid_connect_provider.lab.ur
 ## Consequências
 
 - Nenhuma mudança de comportamento: os mesmos recursos, com os mesmos argumentos, nos mesmos lugares da AWS — só o *resource address* no state muda.
-- `docs/runbooks/validate-argocd-gitops.md` (o único lugar que referenciava endereços de recurso individuais em um comando real, não em prosa histórica) precisou atualizar seu fallback de `-target` em duas etapas: os 3 `-target=aws_eks_cluster.lab`/`aws_eks_node_group.lab_spot`/`aws_iam_openid_connect_provider.lab` viraram um único `-target=module.eks`.
+- `docs/runbooks/validate/validate-argocd-gitops.md` (o único lugar que referenciava endereços de recurso individuais em um comando real, não em prosa histórica) precisou atualizar seu fallback de `-target` em duas etapas: os 3 `-target=aws_eks_cluster.lab`/`aws_eks_node_group.lab_spot`/`aws_iam_openid_connect_provider.lab` viraram um único `-target=module.eks`.
 - ADRs anteriores (004, 007, 008, 009, 010, 011) que mencionam `aws_vpc.lab`, `aws_eks_cluster.lab` etc. **não foram reescritos** — são registros históricos de decisões tomadas contra o código como ele existia naquele momento; alterá-los agora misturaria a decisão original com uma refatoração posterior. Este ADR é o ponteiro para "onde esses recursos moraram depois".
 - Próximo candidato natural, se o projeto crescer para múltiplos ambientes reais (hoje só existe `lab`): os outros arquivos de `envs/lab/` (`iam-app.tf`, `iam-platform.tf`, `cloudfront.tf`) ganhando seus próprios módulos — não feito agora por não haver um segundo ambiente que justifique a reutilização.
 

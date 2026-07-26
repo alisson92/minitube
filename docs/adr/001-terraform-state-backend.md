@@ -24,7 +24,7 @@ Historicamente, a recomendação da HashiCorp para lock de state em S3 era um bu
    - Política negando qualquer acesso fora de TLS (`aws:SecureTransport = false` → `Deny`).
    - Expiração de versões não-correntes após 90 dias, para não acumular custo de storage indefinidamente.
    - `lifecycle { prevent_destroy = true }`, para evitar destruição acidental.
-4. O bootstrap em si usa **backend local** no primeiro `apply` (não há onde mais guardar o state antes do bucket existir). Depois de criado, um bloco `backend "s3"` é adicionado apontando para o próprio bucket, e `terraform init -migrate-state` migra o state do bootstrap para dentro dele — o bootstrap passa a gerenciar seu próprio state remotamente. Procedimento documentado em `docs/runbooks/bootstrap-remote-backend.md`.
+4. O bootstrap em si usa **backend local** no primeiro `apply` (não há onde mais guardar o state antes do bucket existir). Depois de criado, um bloco `backend "s3"` é adicionado apontando para o próprio bucket, e `terraform init -migrate-state` migra o state do bootstrap para dentro dele — o bootstrap passa a gerenciar seu próprio state remotamente. Procedimento documentado em `docs/runbooks/bootstrap/bootstrap-remote-backend.md`.
 
 ### Alternativa considerada: bucket S3 + tabela DynamoDB
 

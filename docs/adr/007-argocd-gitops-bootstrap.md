@@ -82,7 +82,7 @@ Também descoberto em teste real: como o `cloudlab-operator` passou a ser quem c
 - `terraform/envs/lab/outputs.tf` ganha `argocd_namespace`.
 - `gitops/app/kustomization.yaml` deixa de instruir aplicação manual; `gitops/app/namespace.yaml` e `gitops/app/deployment.yaml` trocam o label `app.kubernetes.io/managed-by` de `kubectl` para `argocd`.
 - `gitops/platform/README.md` (novo) — primeiro arquivo do diretório, documentando seu propósito e o que chega na Fase 5.
-- A validação funcional pós-apply ganha `terraform/envs/lab/scripts/validate-argocd.sh` e o runbook [`docs/runbooks/validate-argocd-gitops.md`](../runbooks/validate-argocd-gitops.md) — a checagem central prova que um drift manual é revertido pelo `selfHeal` sem qualquer `kubectl apply`.
-- `docs/runbooks/validate-transcoding.md` e o cabeçalho de `terraform/envs/lab/scripts/validate-transcoding.sh` deixam de mencionar `kubectl apply -k` como pré-requisito.
+- A validação funcional pós-apply ganha `terraform/envs/lab/scripts/validate-argocd.sh` e o runbook [`docs/runbooks/validate/validate-argocd-gitops.md`](../runbooks/validate/validate-argocd-gitops.md) — a checagem central prova que um drift manual é revertido pelo `selfHeal` sem qualquer `kubectl apply`.
+- `docs/runbooks/validate/validate-transcoding.md` e o cabeçalho de `terraform/envs/lab/scripts/validate-transcoding.sh` deixam de mencionar `kubectl apply -k` como pré-requisito.
 - `kubectl apply -k gitops/app/` deixa de ser necessário em qualquer fluxo documentado do projeto a partir desta fase — a exceção temporária aberta no ADR 006 (item 7) está encerrada.
 - `terraform/bootstrap-iam/main.tf` ganha uma action (`iam:ListAttachedRolePolicies`) na `Statement` `PassEksRoles` existente e uma `Statement` nova (`ReadEksServiceLinkedRoles`) — ver decisão 10.

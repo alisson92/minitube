@@ -11,10 +11,10 @@
 | Entregável | Onde vive | PR(s) |
 | --- | --- | --- |
 | Fix do bug de TTL do Job exposto pelo 1º teste de carga | `app/api/jobs.py`, imagem `v0.1.4` | #20 |
-| `load/k6/baseline.js` + runbook | `load/k6/`, `docs/runbooks/run-k6-baseline.md` | #21 |
-| `load/k6/breakpoint.js` + `run-breakpoint-from-ec2.sh` + runbook | `load/`, `docs/runbooks/run-k6-breakpoint.md` | #21, #26 |
+| `load/k6/baseline.js` + runbook | `load/k6/`, `docs/runbooks/load/run-k6-baseline.md` | #21 |
+| `load/k6/breakpoint.js` + `run-breakpoint-from-ec2.sh` + runbook | `load/`, `docs/runbooks/load/run-k6-breakpoint.md` | #21, #26 |
 | HPA + metrics-server + PDB (ADR 012) | `gitops/app/{hpa,pdb}.yaml`, `gitops/platform/metrics-server/` | #22 |
-| `load/k6/waves.js` + `run-waves-from-ec2.sh` + runbook | `load/`, `docs/runbooks/run-k6-waves.md` | #26 |
+| `load/k6/waves.js` + `run-waves-from-ec2.sh` + runbook | `load/`, `docs/runbooks/load/run-k6-waves.md` | #26 |
 | Fix de `readinessProbe`/`livenessProbe` (timeout curto demais sob saturação) | `gitops/app/deployment.yaml` | #27 |
 | 3 experimentos de caos + `docs/runbooks/incident-response.md` | `chaos/`, `docs/runbooks/chaos-*.md` | #25, #28, #29, #30 |
 | SLO de latência revisado com dado real | `gitops/platform/kube-prometheus-stack/slo-rules.yaml` | #31 |
@@ -41,12 +41,12 @@ Nenhum destes apareceu fora de um teste de carga ou experimento de caos real —
 
 Resultados completos em cada runbook — aqui só o resumo:
 
-- **[`run-k6-baseline.md`](../runbooks/run-k6-baseline.md):** carga leve, 0% erro, p95 de 50-190ms conforme o endpoint.
-- **[`run-k6-breakpoint.md`](../runbooks/run-k6-breakpoint.md):** pré-HPA, satura em ~125-130 req/s (CPU de uma réplica); pós-HPA, `PEAK_RATE=400` limpo (p95=48ms); `PEAK_RATE=800` encontra o novo teto real (`maxReplicas: 6`, p95=1,04s, 0% erro).
-- **[`run-k6-waves.md`](../runbooks/run-k6-waves.md):** confirma o HPA escalando para baixo depois do pico (6→3→2, "All metrics below target") — nenhum outro teste da fase exercitava isso. Expõe o bug 5 acima.
-- **[`chaos-kill-api-pod.md`](../runbooks/chaos-kill-api-pod.md):** PASS, 0% erro, recuperação limpa via `minReplicas`+PDB.
-- **[`chaos-drain-spot-node.md`](../runbooks/chaos-drain-spot-node.md):** PASS, reagendamento da API (e de vários singletons de plataforma que compartilhavam o node) dentro do timeout.
-- **[`chaos-disable-observability-stack.md`](../runbooks/chaos-disable-observability-stack.md):** PASS confirmado na 3ª iteração — com o Prometheus/Alertmanager realmente fora do ar, a API e o HLS seguiram servindo 100% do tráfego (0% erro).
+- **[`run-k6-baseline.md`](../runbooks/load/run-k6-baseline.md):** carga leve, 0% erro, p95 de 50-190ms conforme o endpoint.
+- **[`run-k6-breakpoint.md`](../runbooks/load/run-k6-breakpoint.md):** pré-HPA, satura em ~125-130 req/s (CPU de uma réplica); pós-HPA, `PEAK_RATE=400` limpo (p95=48ms); `PEAK_RATE=800` encontra o novo teto real (`maxReplicas: 6`, p95=1,04s, 0% erro).
+- **[`run-k6-waves.md`](../runbooks/load/run-k6-waves.md):** confirma o HPA escalando para baixo depois do pico (6→3→2, "All metrics below target") — nenhum outro teste da fase exercitava isso. Expõe o bug 5 acima.
+- **[`chaos-kill-api-pod.md`](../runbooks/chaos/chaos-kill-api-pod.md):** PASS, 0% erro, recuperação limpa via `minReplicas`+PDB.
+- **[`chaos-drain-spot-node.md`](../runbooks/chaos/chaos-drain-spot-node.md):** PASS, reagendamento da API (e de vários singletons de plataforma que compartilhavam o node) dentro do timeout.
+- **[`chaos-disable-observability-stack.md`](../runbooks/chaos/chaos-disable-observability-stack.md):** PASS confirmado na 3ª iteração — com o Prometheus/Alertmanager realmente fora do ar, a API e o HLS seguiram servindo 100% do tráfego (0% erro).
 
 ## Gráficos/Evidências visuais
 

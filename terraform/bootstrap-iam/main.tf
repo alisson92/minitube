@@ -14,7 +14,7 @@ data "aws_caller_identity" "current" {}
 
 # Requires IAM Identity Center already enabled and the operator user already
 # created via the console (one-time manual steps — see
-# docs/runbooks/aws-account-bootstrap.md). Terraform only wires the
+# docs/runbooks/bootstrap/aws-account-bootstrap.md). Terraform only wires the
 # permission set and the account assignment on top of that.
 data "aws_ssoadmin_instances" "this" {}
 
@@ -91,7 +91,7 @@ resource "aws_iam_instance_profile" "network_smoke_test" {
 
 # AWS creates these automatically the first time a resource of the given type
 # is provisioned in the account. Toggle to false once confirmed present (see
-# docs/runbooks/validate-eks-cluster.md) — re-running with true after that
+# docs/runbooks/validate/validate-eks-cluster.md) — re-running with true after that
 # point fails with "has been taken in this account".
 resource "aws_iam_service_linked_role" "eks_cluster" {
   count            = var.create_eks_service_linked_roles ? 1 : 0

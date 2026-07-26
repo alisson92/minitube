@@ -50,7 +50,7 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             # Default (1s) is too tight under real saturation -- see
-            # docs/runbooks/run-k6-waves.md, "pico do gol" result.
+            # docs/runbooks/load/run-k6-waves.md, "pico do gol" result.
             timeoutSeconds: 3
           livenessProbe:
             httpGet:

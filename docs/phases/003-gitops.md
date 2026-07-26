@@ -36,7 +36,7 @@ Como nas fases anteriores, nenhum destes apareceu antes de um `terraform apply`/
 
 ## Como validamos
 
-[`docs/runbooks/validate-argocd-gitops.md`](../runbooks/validate-argocd-gitops.md) + `terraform/envs/lab/scripts/validate-argocd.sh`: confirma os componentes do ArgoCD `Available`, as duas Applications raiz `Synced`/`Healthy`, que `Deployment/api` carrega a annotation de tracking do ArgoCD (prova de que não veio de `kubectl apply` manual), que a API responde via port-forward, e — a checagem central — que um drift manual (`kubectl scale --replicas=2`) é revertido pelo `selfHeal` sozinho, sem qualquer intervenção. Todas as checagens passaram, com o drift revertido em ~5s. Também rodamos `validate-transcoding.sh` de novo, confirmando que a app agora 100% sincronizada via GitOps ainda transcodifica um vídeo real de ponta a ponta.
+[`docs/runbooks/validate/validate-argocd-gitops.md`](../runbooks/validate/validate-argocd-gitops.md) + `terraform/envs/lab/scripts/validate-argocd.sh`: confirma os componentes do ArgoCD `Available`, as duas Applications raiz `Synced`/`Healthy`, que `Deployment/api` carrega a annotation de tracking do ArgoCD (prova de que não veio de `kubectl apply` manual), que a API responde via port-forward, e — a checagem central — que um drift manual (`kubectl scale --replicas=2`) é revertido pelo `selfHeal` sozinho, sem qualquer intervenção. Todas as checagens passaram, com o drift revertido em ~5s. Também rodamos `validate-transcoding.sh` de novo, confirmando que a app agora 100% sincronizada via GitOps ainda transcodifica um vídeo real de ponta a ponta.
 
 ## Lições aprendidas
 

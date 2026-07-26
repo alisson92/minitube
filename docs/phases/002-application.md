@@ -37,7 +37,7 @@ Nenhum destes apareceu em teste local isolado — todos só surgiram exercitando
 
 ## Como validamos
 
-[`docs/runbooks/validate-transcoding.md`](../runbooks/validate-transcoding.md) + `terraform/envs/lab/scripts/validate-transcoding.sh`: gera um vídeo sintético via FFmpeg (sem binário commitado), envia por `POST /videos` através de um `kubectl port-forward`, espera o Job terminar via polling em `GET /videos/{id}`, e confirma via `aws s3api`/`aws s3 ls` que a playlist e ao menos um segmento existem no bucket real. As 4 checagens passaram na validação final desta fase.
+[`docs/runbooks/validate/validate-transcoding.md`](../runbooks/validate/validate-transcoding.md) + `terraform/envs/lab/scripts/validate-transcoding.sh`: gera um vídeo sintético via FFmpeg (sem binário commitado), envia por `POST /videos` através de um `kubectl port-forward`, espera o Job terminar via polling em `GET /videos/{id}`, e confirma via `aws s3api`/`aws s3 ls` que a playlist e ao menos um segmento existem no bucket real. As 4 checagens passaram na validação final desta fase.
 
 ## Estado final da fase
 

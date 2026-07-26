@@ -24,7 +24,7 @@ output "route53_zone_id" {
 }
 
 output "route53_zone_name_servers" {
-  description = "NS records to add manually at the root domain's registrar to delegate the subdomain to this hosted zone. Required before any DNS resolution under domain_name works — see docs/runbooks/validate-cloudfront-dns-tls.md"
+  description = "NS records to add manually at the root domain's registrar to delegate the subdomain to this hosted zone. Required before any DNS resolution under domain_name works — see docs/runbooks/validate/validate-cloudfront-dns-tls.md"
   value       = aws_route53_zone.minitube.name_servers
 }
 

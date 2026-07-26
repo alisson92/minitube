@@ -27,6 +27,6 @@ A decisão foi antecipar essa migração para o início da Fase 1, enquanto só 
 ## Consequências
 
 - Nenhuma credencial estática de operador humano existe mais na conta; a autenticação local expira sozinha a cada sessão (`session_duration = "PT4H"` no permission set).
-- Habilitar o Identity Center e criar o usuário seguem sendo passos manuais únicos por conta — documentados em [`docs/runbooks/aws-account-bootstrap.md`](../runbooks/aws-account-bootstrap.md) — coerente com o mesmo tipo de exceção já aceita para a criação da conta/root no ADR 002.
+- Habilitar o Identity Center e criar o usuário seguem sendo passos manuais únicos por conta — documentados em [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](../runbooks/bootstrap/aws-account-bootstrap.md) — coerente com o mesmo tipo de exceção já aceita para a criação da conta/root no ADR 002.
 - Qualquer mudança futura de acesso (novo permission set, novo usuário) continua exigindo sessão root/CloudShell em `terraform/bootstrap-iam/`, sem alteração de fluxo em relação ao ADR 002.
 - A pendência registrada no `CLAUDE.md` sobre migração para SSO fica resolvida.

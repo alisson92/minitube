@@ -33,7 +33,7 @@ resource "aws_eks_cluster" "this" {
 
   # No depends_on on the role's policy attachments here: those live in the
   # separate terraform/bootstrap-iam/ state and must already be applied
-  # before this module runs (see docs/runbooks/validate-eks-cluster.md).
+  # before this module runs (see docs/runbooks/validate/validate-eks-cluster.md).
 }
 
 # Managed spot node group. AWS handles the underlying Auto Scaling Group,
@@ -60,7 +60,7 @@ resource "aws_eks_node_group" "spot" {
 
   # No depends_on on the role's policy attachments here: those live in the
   # separate terraform/bootstrap-iam/ state and must already be applied
-  # before this module runs (see docs/runbooks/validate-eks-cluster.md).
+  # before this module runs (see docs/runbooks/validate/validate-eks-cluster.md).
 }
 
 # IAM OIDC provider for IRSA (IAM Roles for Service Accounts). Created now,

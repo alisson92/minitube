@@ -2,7 +2,7 @@
 # Same test as load/run-breakpoint.sh, but the k6 process itself runs from an
 # ephemeral EC2 instance inside the lab VPC instead of the operator's local
 # machine. Local runs go operator -> WSL2 -> home ISP -> internet -> AWS; an
-# investigation on 2026-07-24 (see docs/runbooks/run-k6-breakpoint.md,
+# investigation on 2026-07-24 (see docs/runbooks/load/run-k6-breakpoint.md,
 # section "Investigacao da latencia") found that path can add multi-second
 # latency noise the server side never sees -- ALB TargetResponseTime and the
 # API's own Prometheus histogram both stayed fast (<=145ms / <=0.5s

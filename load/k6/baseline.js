@@ -6,7 +6,7 @@ import { check, sleep } from "k6";
 // at 3/3/3, no HPA/Cluster Autoscaler (see gitops/app/deployment.yaml and
 // terraform/envs/lab/variables.tf). The goal is to observe what breaks first
 // with no scaling mitigation in place, before deciding what to add. See
-// docs/runbooks/run-k6-baseline.md for how this fits into the rest of the
+// docs/runbooks/load/run-k6-baseline.md for how this fits into the rest of the
 // phase and how to read the result.
 //
 // Two scenarios run in parallel, mirroring the two traffic flows in the

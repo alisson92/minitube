@@ -44,7 +44,7 @@ O provider OIDC é um recurso único, barato e idempotente por cluster. Criá-lo
 
 - `terraform/bootstrap-iam/main.tf` cresce com duas roles e uma policy inline unificada — qualquer novo `PassRole` futuro edita esse mesmo recurso.
 - `terraform/envs/lab/` ganha `eks.tf`, novas variáveis (`eks_cluster_version`, `eks_node_instance_types`, `eks_node_desired_size`/`min_size`/`max_size`) e novos outputs (`eks_cluster_name`, `eks_cluster_endpoint`, `eks_cluster_certificate_authority_data`, `eks_oidc_provider_arn`).
-- A validação funcional pós-apply (seção 11 do `engineering-standards.md`) ganha `scripts/validate-eks.sh` e o runbook [`docs/runbooks/validate-eks-cluster.md`](../runbooks/validate-eks-cluster.md).
+- A validação funcional pós-apply (seção 11 do `engineering-standards.md`) ganha `scripts/validate-eks.sh` e o runbook [`docs/runbooks/validate/validate-eks-cluster.md`](../runbooks/validate/validate-eks-cluster.md).
 - O endpoint público do cluster (`endpoint_public_access = true`) fica habilitado por simplicidade de acesso via kubectl no lab; se o projeto precisar restringir isso (ex. por `public_access_cidrs`), essa mudança merece seu próprio ADR quando o contexto de rede da Fase 4/5 estiver mais claro.
 
 > **Atualização (Fase 2):** a suposição de que "o operador que aplica o Terraform já recebe permissões de admin automaticamente" (`bootstrap_cluster_creator_admin_permissions`) só vale para quem *criou* o cluster — na prática, isso foi o CloudShell/root na Fase 1, não o `cloudlab-operator`. Como o objetivo do projeto é que o operador diário use `envs/lab` sem depender de CloudShell, isso precisou de um `aws_eks_access_entry` explícito. Decisão registrada em [ADR 006](006-app-irsa-and-job-orchestration.md).

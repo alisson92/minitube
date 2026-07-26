@@ -9,5 +9,5 @@ terraform {
   }
 
   # Local backend on purpose: creates the bucket the remote backend needs.
-  # Migration steps: docs/runbooks/bootstrap-remote-backend.md.
+  # Migration steps: docs/runbooks/bootstrap/bootstrap-remote-backend.md.
 }

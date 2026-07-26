@@ -1,6 +1,6 @@
 # Runbook — Validação funcional da stack de observabilidade (Fase 5)
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/011-observability-stack.md`](../adr/011-observability-stack.md).
+> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/011-observability-stack.md`](../../adr/011-observability-stack.md).
 
 ## Por que isso existe
 
@@ -25,7 +25,7 @@ AWS_PROFILE=cloudlab terraform apply
 AWS_PROFILE=cloudlab ./scripts/validate-observability.sh
 ```
 
-⚠️ **Se `kube-prometheus-stack` ficar oscilando entre `Progressing`/`Degraded` (nunca `Healthy`), com os CRs `Prometheus`/`Alertmanager` existindo mas sem `StatefulSet` real criado** (ver [ADR 011, decisão 11](../adr/011-observability-stack.md)): o operator do Prometheus só descobre quais CRDs existem **na inicialização** do pod. Se ele tiver subido antes das CRDs (comum em `apply`s com retries/troubleshooting ao vivo, não esperado num `apply` limpo do zero), ele nunca vai reconhecer `Prometheus`/`Alertmanager` sozinho — precisa reiniciar:
+⚠️ **Se `kube-prometheus-stack` ficar oscilando entre `Progressing`/`Degraded` (nunca `Healthy`), com os CRs `Prometheus`/`Alertmanager` existindo mas sem `StatefulSet` real criado** (ver [ADR 011, decisão 11](../../adr/011-observability-stack.md)): o operator do Prometheus só descobre quais CRDs existem **na inicialização** do pod. Se ele tiver subido antes das CRDs (comum em `apply`s com retries/troubleshooting ao vivo, não esperado num `apply` limpo do zero), ele nunca vai reconhecer `Prometheus`/`Alertmanager` sozinho — precisa reiniciar:
 
 ```bash
 kubectl -n minitube-platform rollout restart deployment/kube-prometheus-stack-operator
@@ -49,7 +49,7 @@ cd terraform/envs/lab
 AWS_PROFILE=cloudlab terraform output -raw grafana_admin_password; echo
 ```
 
-⚠️ **Não use `kubectl get secret kube-prometheus-stack-grafana` para isso** (ver [ADR 011, decisão 12](../adr/011-observability-stack.md)) — o chart gera essa senha via `randAlphaNum` sempre que o Helm renderiza o template, e como o ArgoCD renderiza via `helm template` sem estado a cada sync (não um `helm upgrade` de verdade), cada sync gravava um valor novo no Secret enquanto o pod do Grafana já em execução continuava com a senha antiga em memória — os dois valores divergiam silenciosamente. A senha agora é gerada uma única vez em estado real do Terraform e injetada via `helm.parameters`, o que faz o Secret também ficar estável — mas a fonte de verdade é o `terraform output`, não o Secret.
+⚠️ **Não use `kubectl get secret kube-prometheus-stack-grafana` para isso** (ver [ADR 011, decisão 12](../../adr/011-observability-stack.md)) — o chart gera essa senha via `randAlphaNum` sempre que o Helm renderiza o template, e como o ArgoCD renderiza via `helm template` sem estado a cada sync (não um `helm upgrade` de verdade), cada sync gravava um valor novo no Secret enquanto o pod do Grafana já em execução continuava com a senha antiga em memória — os dois valores divergiam silenciosamente. A senha agora é gerada uma única vez em estado real do Terraform e injetada via `helm.parameters`, o que faz o Secret também ficar estável — mas a fonte de verdade é o `terraform output`, não o Secret.
 
 ## Como funciona o script de validação
 
@@ -94,7 +94,7 @@ AWS_PROFILE=cloudlab terraform plan -destroy   # revisar: remove a stack de obse
 AWS_PROFILE=cloudlab terraform destroy
 ```
 
-⚠️ **Risco teórico, checado e não confirmado no primeiro ciclo real** (ver [ADR 011, decisão 4](../adr/011-observability-stack.md)): as `Application`s `kube-prometheus-stack` e `loki` (donas de PVC) ganharam o mesmo finalizer e proteção de `depends_on` já usados para o órfão da ALB do LBC (ADR 010), mas não há garantia de ordem entre `Application`s-irmãs dentro do mesmo `helm_release` — um volume EBS poderia, em teoria, ficar órfão se o pod do `ebs-csi-driver` fosse removido antes da poda de PVC terminar. Não aconteceu no primeiro `destroy` real desta fase, mas vale conferir de novo a cada sessão até o padrão se provar consistente:
+⚠️ **Risco teórico, checado e não confirmado no primeiro ciclo real** (ver [ADR 011, decisão 4](../../adr/011-observability-stack.md)): as `Application`s `kube-prometheus-stack` e `loki` (donas de PVC) ganharam o mesmo finalizer e proteção de `depends_on` já usados para o órfão da ALB do LBC (ADR 010), mas não há garantia de ordem entre `Application`s-irmãs dentro do mesmo `helm_release` — um volume EBS poderia, em teoria, ficar órfão se o pod do `ebs-csi-driver` fosse removido antes da poda de PVC terminar. Não aconteceu no primeiro `destroy` real desta fase, mas vale conferir de novo a cada sessão até o padrão se provar consistente:
 
 ```bash
 aws ec2 describe-volumes --profile cloudlab --region us-east-1 \

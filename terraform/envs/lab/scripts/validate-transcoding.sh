@@ -9,8 +9,8 @@
 # Usage: AWS_PROFILE=cloudlab ./scripts/validate-transcoding.sh
 # Run from terraform/envs/lab/ (the script also cds there automatically).
 # Requires: ArgoCD installed and gitops/app/ synced from Git (see
-# docs/runbooks/validate-argocd-gitops.md) and both images already pushed to
-# ECR -- see docs/runbooks/validate-transcoding.md. Never run
+# docs/runbooks/validate/validate-argocd-gitops.md) and both images already pushed to
+# ECR -- see docs/runbooks/validate/validate-transcoding.md. Never run
 # `kubectl apply -k` manually from Phase 3 onward.
 
 set -euo pipefail

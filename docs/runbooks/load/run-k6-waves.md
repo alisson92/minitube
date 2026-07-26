@@ -4,7 +4,7 @@
 
 `load/run-waves-from-ec2.sh` roda `load/k6/waves.js` — audiência subindo e descendo em ondas ("pré-jogo" → "1º tempo" → "intervalo" → "2º tempo" → "pico do gol" → "apito final"), ao longo de ~23 minutos. Diferente de `load/k6/baseline.js` (crescimento monotônico, já validado estável) e `load/k6/breakpoint.js` (rampa até quebrar, sem descida), este é o primeiro cenário que **desce** de propósito — o objetivo central é observar o HPA (`gitops/app/hpa.yaml`, `minReplicas: 2`/`maxReplicas: 6`) escalando **para baixo** depois de um pico, não só para cima.
 
-O estágio "pico do gol" mira deliberadamente perto do teto real já encontrado em [`docs/runbooks/run-k6-breakpoint.md`](run-k6-breakpoint.md) (execução `PEAK_RATE=800`): `maxReplicas: 6` × `limits.cpu: 500m` = 3 cores agregados, ponto em que a latência sobe (fila) sem erros reais aparecerem. Cruzar esse ponto de propósito — e depois descer — é o que torna este um teste de **recuperação**, não só mais um breakpoint: a latência volta a cair e as réplicas voltam a `minReplicas: 2` depois que a onda passa, ou algo fica preso?
+O estágio "pico do gol" mira deliberadamente perto do teto real já encontrado em [`docs/runbooks/load/run-k6-breakpoint.md`](run-k6-breakpoint.md) (execução `PEAK_RATE=800`): `maxReplicas: 6` × `limits.cpu: 500m` = 3 cores agregados, ponto em que a latência sobe (fila) sem erros reais aparecerem. Cruzar esse ponto de propósito — e depois descer — é o que torna este um teste de **recuperação**, não só mais um breakpoint: a latência volta a cair e as réplicas voltam a `minReplicas: 2` depois que a onda passa, ou algo fica preso?
 
 ## Por quê
 

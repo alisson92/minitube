@@ -10,7 +10,7 @@
 # Run from terraform/envs/lab/ (the script also cds there automatically).
 # Requires: terraform apply already ran (ArgoCD + the two root Applications
 # come up from terraform/envs/lab/argocd.tf) -- see
-# docs/runbooks/validate-argocd-gitops.md.
+# docs/runbooks/validate/validate-argocd-gitops.md.
 
 set -euo pipefail
 

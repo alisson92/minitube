@@ -22,7 +22,7 @@ A primeira tentativa de `terraform apply` do bucket de state falhou: o usuário 
 
 ## Consequências
 
-- Qualquer mudança futura de IAM (nova policy, novo usuário) exige repetir o procedimento manual do CloudShell dentro de `terraform/bootstrap-iam/` — é um evento raro e documentado em [`docs/runbooks/aws-account-bootstrap.md`](../runbooks/aws-account-bootstrap.md), não parte do fluxo normal de `apply`/`destroy` das sessões.
+- Qualquer mudança futura de IAM (nova policy, novo usuário) exige repetir o procedimento manual do CloudShell dentro de `terraform/bootstrap-iam/` — é um evento raro e documentado em [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](../runbooks/bootstrap/aws-account-bootstrap.md), não parte do fluxo normal de `apply`/`destroy` das sessões.
 - `terraform/bootstrap/` (bucket de state) pode ser planejado/aplicado normalmente pelo `cloudlab-operator`, local, sem CloudShell — é o único diretório do projeto com essa característica na Fase 1, já que os demais (VPC, EKS, etc.) também não tocam IAM.
 - A conta antiga (`455162168775`, `lab-operator`) é abandonada; nenhuma limpeza é necessária ali além de, eventualmente, encerrá-la se não tiver mais uso.
 - O output `operator_secret_access_key` é sensível e só deve ser lido uma vez, no momento da configuração do profile local — nunca deve aparecer em logs ou ser commitado.

@@ -12,7 +12,7 @@
 # is the local traffic-generator loop and the ephemeral kubeconfig.
 #
 # Usage: AWS_PROFILE=cloudlab ./chaos/kill-api-pod.sh
-# See docs/runbooks/chaos-kill-api-pod.md for what to expect and how to read
+# See docs/runbooks/chaos/chaos-kill-api-pod.md for what to expect and how to read
 # the result.
 
 set -euo pipefail
@@ -120,6 +120,6 @@ if (( $(echo "$error_rate <= $MAX_ERROR_RATE_PERCENT" | bc -l) )); then
   echo "PASS: error rate ${error_rate}% is at or below the ${MAX_ERROR_RATE_PERCENT}% threshold -- minReplicas + PDB absorbed the pod loss without visible client impact."
   exit 0
 else
-  echo "FAIL: error rate ${error_rate}% exceeded the ${MAX_ERROR_RATE_PERCENT}% threshold -- see docs/runbooks/chaos-kill-api-pod.md for what to check next." >&2
+  echo "FAIL: error rate ${error_rate}% exceeded the ${MAX_ERROR_RATE_PERCENT}% threshold -- see docs/runbooks/chaos/chaos-kill-api-pod.md for what to check next." >&2
   exit 1
 fi

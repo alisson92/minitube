@@ -24,7 +24,7 @@ Upload/transcodificação em massa **não** faz parte deste baseline — subir v
 AWS_PROFILE=cloudlab ./load/run-baseline.sh
 ```
 
-Pré-requisitos: `k6`, `aws`, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg` no PATH; `terraform apply` já rodou em `terraform/envs/lab` e o ArgoCD já sincronizou `gitops/app/` (ver `docs/runbooks/validate-transcoding.md`).
+Pré-requisitos: `k6`, `aws`, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg` no PATH; `terraform apply` já rodou em `terraform/envs/lab` e o ArgoCD já sincronizou `gitops/app/` (ver `docs/runbooks/validate/validate-transcoding.md`).
 
 O script:
 
@@ -46,4 +46,4 @@ Este teste **não se autolimpa como os `validate-*.sh`** no sentido de destruir 
 
 Rodado contra a infra real (1 réplica da API, node group 3/3/3, sem HPA): **0% de erro** em 8733 requisições, thresholds todos verdes com folga confortável — p95 de 186ms (`api`), 120ms (`playlist`) e 184ms (`segment`), todos bem abaixo dos 500ms do `slo-rules.yaml`. Pico de carga: só 60 VUs (50 `viewers` + 10 `api_dynamic`), ~20 req/s no total.
 
-**Isso não significa que a arquitetura não quebra sob carga — significa que este baseline é pequeno demais para descobrir onde.** A API roda `uvicorn` sem `--workers` (`app/api/Dockerfile`) — um único processo, sob limite de `500m` de CPU — mas o cenário `api_dynamic` nunca gerou volume suficiente para chegar perto desse teto (10 VUs com 2-5s de sleep entre iterações = poucas requisições/segundo reais contra o pod). `viewers` bate em CloudFront/S3, que não tem motivo pra sentir 50 VUs. Baseline **confirmado estável sob carga leve**; permanece registrado como está, sem escalar — para achar o ponto real de quebra, use `docs/runbooks/run-k6-breakpoint.md`.
+**Isso não significa que a arquitetura não quebra sob carga — significa que este baseline é pequeno demais para descobrir onde.** A API roda `uvicorn` sem `--workers` (`app/api/Dockerfile`) — um único processo, sob limite de `500m` de CPU — mas o cenário `api_dynamic` nunca gerou volume suficiente para chegar perto desse teto (10 VUs com 2-5s de sleep entre iterações = poucas requisições/segundo reais contra o pod). `viewers` bate em CloudFront/S3, que não tem motivo pra sentir 50 VUs. Baseline **confirmado estável sob carga leve**; permanece registrado como está, sem escalar — para achar o ponto real de quebra, use `docs/runbooks/load/run-k6-breakpoint.md`.

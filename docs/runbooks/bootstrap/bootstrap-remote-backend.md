@@ -1,10 +1,10 @@
 # Runbook — Backend remoto do Terraform
 
-> Ver decisão em [`docs/adr/001-terraform-state-backend.md`](../adr/001-terraform-state-backend.md).
+> Ver decisão em [`docs/adr/001-terraform-state-backend.md`](../../adr/001-terraform-state-backend.md).
 
 ## Criação do bucket
 
-O bucket de state é criado junto com o bootstrap de conta/IAM — ver [`docs/runbooks/aws-account-bootstrap.md`](aws-account-bootstrap.md) (passos 4-7). Este runbook cobre apenas o **uso** do backend já criado.
+O bucket de state é criado junto com o bootstrap de conta/IAM — ver [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](aws-account-bootstrap.md) (passos 4-7). Este runbook cobre apenas o **uso** do backend já criado.
 
 ## Usar o backend em um novo ambiente
 

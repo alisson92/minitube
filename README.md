@@ -38,7 +38,7 @@ docs/        # motivação, ADRs, runbooks e retrospectos por fase
 
 ## Como começar
 
-O bootstrap de uma conta AWS nova (conta dedicada, operador via IAM Identity Center provisionado por Terraform, backend remoto de state) está documentado passo a passo em [`docs/runbooks/aws-account-bootstrap.md`](docs/runbooks/aws-account-bootstrap.md).
+O bootstrap de uma conta AWS nova (conta dedicada, operador via IAM Identity Center provisionado por Terraform, backend remoto de state) está documentado passo a passo em [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](docs/runbooks/bootstrap/aws-account-bootstrap.md).
 
 ## Status
 
