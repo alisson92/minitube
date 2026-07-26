@@ -57,7 +57,8 @@ minitube/
 ├── app/
 │   ├── api/                # FastAPI: upload + dispara Job de transcodificação
 │   └── transcoder/         # FFmpeg → HLS, roda como Job Kubernetes
-└── load/                   # cenários k6 ("ondas de torcida")
+├── load/                   # cenários k6 ("ondas de torcida")
+└── chaos/                  # experimentos de caos simples (Fase 6)
 ```
 
 ## Fases do projeto
