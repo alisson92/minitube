@@ -58,14 +58,13 @@ Dependências no seu ambiente: `aws` CLI, `jq`, `terraform`, `kubectl`, `curl`, 
 ⚠️ **Se o `apply` falhar no `helm_release.argocd` com erro de conexão** (`connection refused` / `context deadline exceeded`) **logo depois de criar um cluster totalmente novo**: é um sintoma conhecido de o control plane ainda não estar 100% pronto para os providers `kubernetes`/`helm` no mesmo apply em que o cluster nasceu. Como este projeto recria o cluster do zero em toda sessão, esse é o cenário mais comum, não a exceção. Fallback com `-target` em duas etapas:
 
 ```bash
-AWS_PROFILE=cloudlab terraform apply \
-  -target=aws_eks_cluster.lab \
-  -target=aws_eks_node_group.lab_spot \
-  -target=aws_iam_openid_connect_provider.lab
+AWS_PROFILE=cloudlab terraform apply -target=module.eks
 
 AWS_PROFILE=cloudlab terraform plan     # deve mostrar só o restante: S3, IRSA, namespace argocd, helm_releases
 AWS_PROFILE=cloudlab terraform apply
 ```
+
+> `-target=module.eks` sobe o cluster, o node group e o OIDC provider (todos dentro de `terraform/modules/eks/`, ver [ADR 013](../adr/013-terraform-vpc-eks-modules.md)) numa única etapa — targeting um módulo inteiro aplica todos os recursos dentro dele.
 
 ## Como acessar a UI do ArgoCD
 

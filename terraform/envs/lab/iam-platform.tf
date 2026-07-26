@@ -28,7 +28,7 @@ resource "aws_iam_role" "aws_load_balancer_controller" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.lab.arn }
+      Principal = { Federated = module.eks.oidc_provider_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
@@ -57,7 +57,7 @@ resource "aws_iam_role" "external_dns" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.lab.arn }
+      Principal = { Federated = module.eks.oidc_provider_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
@@ -95,7 +95,7 @@ resource "aws_iam_role" "cert_manager" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.lab.arn }
+      Principal = { Federated = module.eks.oidc_provider_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
@@ -143,7 +143,7 @@ resource "aws_iam_role" "ebs_csi_driver" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.lab.arn }
+      Principal = { Federated = module.eks.oidc_provider_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
@@ -169,7 +169,7 @@ resource "aws_iam_role" "grafana" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.lab.arn }
+      Principal = { Federated = module.eks.oidc_provider_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }

@@ -1,8 +1,8 @@
 # IRSA role for the app workloads (API + transcoder). Lives here, not in
 # bootstrap-iam, because its trust policy is bound to this cluster's OIDC
-# provider (aws_iam_openid_connect_provider.lab, in eks.tf) — a resource
-# that's recreated every session along with the rest of envs/lab. Creating it
-# here keeps the whole app stack on one apply/destroy cycle, at the cost of a
+# provider (module.eks.oidc_provider_arn, in eks.tf) — a resource that's
+# recreated every session along with the rest of envs/lab. Creating it here
+# keeps the whole app stack on one apply/destroy cycle, at the cost of a
 # one-time, narrowly-scoped IAM grant to the daily operator (see the
 # "ManageAppIrsaRoles" statement in terraform/bootstrap-iam/main.tf and
 # docs/adr/006-app-irsa-and-job-orchestration.md).
@@ -13,7 +13,7 @@
 # Trust policy accepts both service accounts; names must match
 # gitops/app/serviceaccount-api.yaml and gitops/app/serviceaccount-transcoder.yaml.
 locals {
-  oidc_provider_url         = replace(aws_iam_openid_connect_provider.lab.url, "https://", "")
+  oidc_provider_url         = module.eks.oidc_provider_url
   app_namespace             = "minitube-app"
   app_service_account_names = ["api", "transcoder"]
 }
@@ -27,7 +27,7 @@ resource "aws_iam_role" "app" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.lab.arn }
+      Principal = { Federated = module.eks.oidc_provider_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
