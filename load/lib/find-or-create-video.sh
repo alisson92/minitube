@@ -1,4 +1,5 @@
-# Shared by load/run-baseline.sh and load/run-breakpoint.sh: finds an
+# Shared by all four load/run-*.sh scripts (see load/README.md for what
+# each one covers): finds an
 # existing transcoded video in S3, or uploads a synthetic one via the real
 # API and waits for the transcode Job to finish -- same pattern already used
 # in terraform/envs/lab/scripts/validate-transcoding.sh and
