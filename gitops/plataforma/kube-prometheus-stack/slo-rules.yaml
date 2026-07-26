@@ -1,6 +1,8 @@
-# Minimum-viable SLOs for the "dia do jogo" dashboard (Phase 5 completion
-# criterion, CLAUDE.md) -- defined before the k6 load tests (Phase 6), per
-# the project's own phase table. See docs/adr/011-observability-stack.md.
+# SLOs for the "dia do jogo" dashboard (Phase 5 completion criterion,
+# CLAUDE.md). The latency thresholds below were revised in Phase 6 with
+# real k6 data (see docs/runbooks/run-k6-breakpoint.md and
+# run-k6-waves.md), replacing the original 500ms placeholder from Phase 5
+# (docs/adr/011-observability-stack.md), which predates any load test.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -20,14 +22,29 @@ spec:
             severity: critical
           annotations:
             summary: "API sem réplicas disponíveis por mais de 5 minutos"
-        - alert: APILatencySLOBreach
+        - alert: APILatencyWarning
           # Requires app/api's /metrics (prometheus-fastapi-instrumentator,
-          # scraped via servicemonitor-api.yaml). 500ms is a starting point
-          # for a lab, not a validated SLA -- revisit with real k6 data in
-          # Phase 6.
-          expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler=~"/api.*"}[5m])) by (le)) > 0.5
+          # scraped via servicemonitor-api.yaml). 250ms sits comfortably
+          # above every normal-operation p95 observed in Phase 6 (baseline:
+          # 50-190ms; breakpoint at PEAK_RATE=400, post-HPA: 48ms) -- this
+          # fires while the API is still healthy but trending up, before it
+          # reaches the point where the HPA's own ceiling starts queueing
+          # requests (see APILatencyCritical below).
+          expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler=~"/api.*"}[5m])) by (le)) > 0.25
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: "Latência p95 da API acima de 500ms por mais de 5 minutos"
+            summary: "Latência p95 da API acima de 250ms por mais de 5 minutos"
+        - alert: APILatencyCritical
+          # 800ms matches the confirmed onset of real queueing at the HPA's
+          # current maxReplicas:6 ceiling (breakpoint at PEAK_RATE=800:
+          # p95=1.04s, http_req_failed still 0% -- genuine backpressure, not
+          # errors yet, see docs/runbooks/run-k6-breakpoint.md). Below this,
+          # PEAK_RATE=400 held clean at p95=48ms with plenty of headroom.
+          expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler=~"/api.*"}[5m])) by (le)) > 0.8
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Latência p95 da API acima de 800ms por mais de 5 minutos -- provável saturação no teto atual do HPA (maxReplicas: 6)"

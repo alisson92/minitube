@@ -11,10 +11,10 @@ O script sobe uma carga pequena e crescente (k6 `ramping-vus`, ~9 minutos) em do
 
 ## Por quê
 
-Este é deliberadamente o **primeiro** teste da fase, antes de qualquer mitigação (HPA, Cluster Autoscaler, ajuste do SLO de 500ms em `slo-rules.yaml`). Adicionar uma mitigação antes de ter dado real seria uma aposta, não uma decisão embasada — ver a seção "Sequência lógica" combinada com o operador nesta fase. O resultado deste script é o que decide:
+Este é deliberadamente o **primeiro** teste da fase, antes de qualquer mitigação (HPA, Cluster Autoscaler, ajuste do SLO em `slo-rules.yaml`). Adicionar uma mitigação antes de ter dado real seria uma aposta, não uma decisão embasada — ver a seção "Sequência lógica" combinada com o operador nesta fase. O resultado deste script é o que decide:
 
 1. Se o gargalo é de **pod** (CPU/memória do único réplica da API) ou de **node group** (capacidade do cluster) — determina se a resposta é HPA (barato) ou Cluster Autoscaler/Karpenter (mais caro).
-2. Se o threshold de 500ms em `slo-rules.yaml` é realista, frouxo ou apertado demais — hoje é um valor arbitrário, o próprio arquivo já sinaliza isso.
+2. Se o threshold de 500ms em `slo-rules.yaml` (na época, um valor arbitrário) era realista, frouxo ou apertado demais — resultado: era bem frouxo, revisado depois com todo o dado desta fase para `APILatencyWarning` (250ms) + `APILatencyCritical` (800ms).
 
 Upload/transcodificação em massa **não** faz parte deste baseline — subir vários Jobs de transcodificação concorrentes é um cenário de estresse separado e mais pesado, não uma carga pequena/crescente.
 
@@ -37,7 +37,7 @@ O script:
 O sumário do k6 ao final mostra, por `endpoint` (tag `playlist`, `segment`, `api`):
 
 - **`http_req_failed`** — taxa de erro. O threshold configurado (`rate<0.01`) falha o `k6 run` (exit code ≠ 0) se mais de 1% das requisições falharem em qualquer cenário — esse é o sinal mais direto de "algo quebrou".
-- **`http_req_duration` p95** — comparar contra os 500ms do `slo-rules.yaml`. Se `endpoint:api` estourar consistentemente antes de `endpoint:playlist`/`endpoint:segment`, é evidência de que o gargalo é o pod da API, não o CDN/origem — a favor de HPA como primeira mitigação.
+- **`http_req_duration` p95** — comparar contra os limiares de `slo-rules.yaml` (`APILatencyWarning` 250ms, `APILatencyCritical` 800ms). Se `endpoint:api` estourar consistentemente antes de `endpoint:playlist`/`endpoint:segment`, é evidência de que o gargalo é o pod da API, não o CDN/origem — a favor de HPA como primeira mitigação.
 - Cruzar o horário do teste com os dashboards da Fase 5 no Grafana (saturação de CPU/memória do pod `api`, saturação dos nós) para confirmar se o gargalo foi de pod ou de node group antes de decidir a mitigação.
 
 Este teste **não se autolimpa como os `validate-*.sh`** no sentido de destruir infraestrutura — ele só lê/gera tráfego HTTP e, na ausência de vídeo existente, cria um vídeo de teste real no S3 (que passa a contar como "vídeo já transcodificado" nas execuções seguintes). Nenhum recurso do Terraform é criado ou destruído por este script.

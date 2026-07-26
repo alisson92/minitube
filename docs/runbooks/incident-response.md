@@ -35,7 +35,7 @@ Guia geral de como detectar, triar e mitigar um incidente na API/HLS do MiniTube
 
 ### 1. Detectar
 
-Dois sinais oficiais, ambos definidos em [`gitops/plataforma/kube-prometheus-stack/slo-rules.yaml`](../../gitops/plataforma/kube-prometheus-stack/slo-rules.yaml) (`PrometheusRule minitube-api-slo`):
+Três sinais oficiais, todos definidos em [`gitops/plataforma/kube-prometheus-stack/slo-rules.yaml`](../../gitops/plataforma/kube-prometheus-stack/slo-rules.yaml) (`PrometheusRule minitube-api-slo`):
 
 ```bash
 # Gera kubeconfig efêmero (repita em qualquer passo abaixo que precise dele)
@@ -52,7 +52,8 @@ curl -s http://127.0.0.1:9090/api/v1/alerts | jq '.data.alerts[] | select(.state
 | Alerta | Significa | Severidade |
 | --- | --- | --- |
 | `APIAvailabilitySLOBreach` | Menos de 1 réplica `api` disponível por mais de 5 minutos | `critical` |
-| `APILatencySLOBreach` | p95 de `/api*` acima do limiar definido em `slo-rules.yaml` por mais de 5 minutos | `warning` |
+| `APILatencyWarning` | p95 de `/api*` acima de 250ms por mais de 5 minutos — ainda saudável, mas subindo | `warning` |
+| `APILatencyCritical` | p95 de `/api*` acima de 800ms por mais de 5 minutos — provável saturação no teto atual do HPA (`maxReplicas: 6`) | `critical` |
 
 Complementar visualmente: dashboard "dia do jogo" em `https://grafana.<domínio>` (hit ratio do CDN, latência p95/p99, saturação de nó, erros da ALB — os 4 sinais do critério de conclusão da Fase 5).
 
