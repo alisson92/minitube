@@ -68,19 +68,7 @@ AWS_PROFILE=cloudlab terraform apply
 
 ## Como acessar a UI do ArgoCD
 
-Sem Ingress/DNS/TLS ainda (chegam na Fase 4) — acesso só via port-forward:
-
-```bash
-aws eks update-kubeconfig --region us-east-1 --name minitube-lab --profile cloudlab
-kubectl -n argocd port-forward svc/argocd-server 8080:443
-# abrir https://localhost:8080 — certificado self-signed do chart, aceitar o aviso do navegador
-```
-
-Usuário `admin`, senha inicial:
-
-```bash
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
-```
+Desde a Fase 4, o ArgoCD tem Ingress/DNS/TLS próprios — ver [`docs/runbooks/access-argocd-ui.md`](../access-argocd-ui.md) (URL real e senha via `terraform output`, não mais port-forward nem `argocd-initial-admin-secret`, que deixou de ser criado desde que a senha passou a ser pré-semeada).
 
 ## Como funciona o script de validação
 
