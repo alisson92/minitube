@@ -35,6 +35,37 @@ Ao contrário do breakpoint, **este teste não deveria abortar** (`abortOnFail` 
 - **Taxa de erro:** esperado ficar perto de 0% durante todo o teste, inclusive no pico — a saturação observada no breakpoint é de fila/latência, não de erro.
 - **Vale do "intervalo":** confirmar que o HPA não escala para baixo cedo demais nem demora demais — comportamento normal do HPA tem uma janela de estabilização (`stabilizationWindowSeconds`, default do `autoscaling/v2` é 5 min para scale-down) que pode fazer o vale do intervalo (2-3 min) não ser longo o suficiente para uma descida completa antes do "2º tempo" subir de novo — isso é esperado, não um bug.
 
-## Resultado da execução (`<preencher após rodar>`)
+## Resultado da execução (2026-07-26) — scale-down confirmado, e um bug real de auto-recuperação encontrado
 
-_Aguardando primeira execução real contra o cluster — calibrado com o teto real encontrado em [`docs/runbooks/run-k6-breakpoint.md`](run-k6-breakpoint.md) (`PEAK_RATE=800`, `maxReplicas: 6` como limite atual)._
+Executado com `WAVE_PEAK_RATE=700` (default) contra a infra real, via `run-waves-from-ec2.sh`.
+
+**Pergunta central do teste respondida: sim, o HPA escala para baixo depois do pico**, confirmado pelo histórico completo de eventos (`kubectl -n minitube-app describe hpa api`), cobrindo o teste inteiro:
+
+```
+SuccessfulRescale  New size: 3   (1º tempo)
+SuccessfulRescale  New size: 4   (2º tempo)
+SuccessfulRescale  New size: 5   (2º tempo)
+SuccessfulRescale  New size: 6   (pico do gol)
+SuccessfulRescale  New size: 3   (apito final) — "All metrics below target"
+SuccessfulRescale  New size: 2   (apito final) — "All metrics below target"
+```
+
+O padrão de subida-e-descida esperado aconteceu de ponta a ponta, sem intervenção manual — a réplica final, minutos depois do teste, estava de volta a `minReplicas: 2`.
+
+**Mas o resultado do k6 em si não bateu com os testes anteriores:** `http_req_failed=0,31%` (contra 0,00% em todos os breakpoints, inclusive em `PEAK_RATE=800` — mais alto que os 700 daqui) e `http_req_duration{endpoint:api}` `p(95)=2,42s`, `max=27,97s`. A métrica agregada (`expected_response:true`, que mistura tráfego `api` com `playlist`/`segment`) também mostrou `p(95)=2,25s` — mas os `checks` confirmam que **`playlist status is 200` e `segment status is 200` nunca falharam**, só `healthz status is 200` e `video status is 200` — ou seja, o CloudFront/S3 nunca degradou; o número agregado só reflete que a maior parte do volume de requisições na janela era tráfego `api`.
+
+**Causa raiz confirmada via `kubectl get events` (não coincide com o comportamento visto em nenhum breakpoint anterior):**
+
+```
+Warning  Unhealthy  pod/api-...  Liveness probe failed: Get "http://.../api/healthz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+Warning  Unhealthy  pod/api-...  Readiness probe failed: Get "http://.../api/healthz": context deadline exceeded ...
+Normal   Killing    pod/api-...  Container api failed liveness probe, will be restarted
+```
+
+Repetido em pelo menos 5 pods diferentes durante o estágio "pico do gol". **Achado: o `timeoutSeconds` default de 1s (nem `readinessProbe` nem `livenessProbe` em `gitops/app/deployment.yaml` definiam um valor explícito) é curto demais frente à latência real observada sob saturação** (`p(95)=2,42s` no `endpoint:api` durante o pico) — quando o pod fica CPU-pressionado perto do teto de `maxReplicas: 6`, até o `/api/healthz` (endpoint trivial, sem I/O) passa a responder mais devagar que 1s às vezes, porque compete pelo mesmo CPU limitado do processo. O `kubelet` então mata pods que estavam **sobrecarregados, não travados** — exatamente o anti-padrão documentado nas boas práticas do Kubernetes para liveness probes ("não deveriam depender de condições que o próprio processo não controla sozinho, como contenção de CPU"). O efeito é auto-amplificador: perder um pod no meio do pico reduz a capacidade disponível bem na hora em que ela mais falta, o oposto do que o HPA está tentando fazer.
+
+**Corrigido em `gitops/app/deployment.yaml`** (mesma branch/commit deste resultado): `readinessProbe.timeoutSeconds: 3`; `livenessProbe.timeoutSeconds: 5` + `failureThreshold: 5` (o liveness recebeu a folga maior porque é o único dos dois que **mata** o container — readiness só tira da rotação do Service, uma ação bem menos destrutiva sob sobrecarga transiente). Os valores foram calibrados acima do pior `p(95)` observado (2,42s) com margem.
+
+**Não revalidado nesta sessão** — o fix ainda não foi confirmado com uma nova execução do `waves.js` (rodar de novo custa outros ~25-30 minutos). Candidato natural para a próxima vez que este cenário rodar: confirmar que os eventos `Unhealthy`/`Killing` somem do log durante o mesmo "pico do gol".
+
+**Conclusão para o relatório final da Fase 6:** este foi o achado mais valioso desta fase em termos de "o que quebrou primeiro" — não foi capacidade agregada (o HPA absorveu o pico e devolveu a capacidade depois, como esperado), foi uma probe mal calibrada amplificando a própria saturação que o HPA estava tentando resolver.
