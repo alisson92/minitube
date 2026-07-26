@@ -19,6 +19,7 @@
 | 3 experimentos de caos + `docs/runbooks/incident-response.md` | `chaos/`, `docs/runbooks/chaos-*.md` | #25, #28, #29, #30 |
 | SLO de latência revisado com dado real | `gitops/plataforma/kube-prometheus-stack/slo-rules.yaml` | #31 |
 | Backfill dos retrospectos de Fase 4 e 5 | `docs/phases/004-*.md`, `005-*.md` | #24 |
+| Dashboard "dia do jogo" reconstruído como código | `gitops/plataforma/kube-prometheus-stack/dashboard-dia-do-jogo.yaml` | *(este PR)* |
 
 ## Decisões de arquitetura (ADRs)
 
@@ -34,6 +35,7 @@ Nenhum destes apareceu fora de um teste de carga ou experimento de caos real —
 4. **Novo teto real pós-HPA: `maxReplicas: 6`, não CPU de uma réplica** — escalando o breakpoint para `PEAK_RATE=800`, o HPA bateu no próprio `maxReplicas: 6` (3 cores agregados) e segurou lá sob demanda crescente, causando fila (latência subindo a `p95=1,04s`, `max=12,94s`) sem erros reais (`0,00%`) — comportamento de saturação controlada, não crash.
 5. **Probes matando pods sobrecarregados, não travados** — o cenário de ondas (`waves.js`) expôs que `readinessProbe`/`livenessProbe` (`gitops/app/deployment.yaml`) não tinham `timeoutSeconds` explícito (default do Kubernetes: 1s) — curto demais frente ao `p95=2,42s` real no pico. O `kubelet` matava pods que estavam sobrecarregados, cortando capacidade bem na hora em que o HPA mais precisava dela. Achado mais valioso da fase em termos de "o que quebrou primeiro": não foi capacidade agregada (o HPA absorveu o pico como esperado), foi uma probe mal calibrada amplificando a própria saturação que o HPA tentava resolver.
 6. **`disable-observability-stack.sh` — três bugs em sequência, só o script de teste, não a arquitetura:** (a) tentava descobrir um `video_id` via `GET /api/videos`, rota que nunca existiu (só `POST /api/videos` e `GET /api/videos/{id}`) — o script abortava silenciosamente sob `set -euo pipefail`; (b) a descoberta de workloads por `app.kubernetes.io/instance` (label do Helm) nunca cobria o StatefulSet real do Prometheus/Alertmanager, criados dinamicamente pelo Prometheus Operator com labels próprios — o primeiro resultado "válido" (`FAIL`, 18,75% de erro) não significava nada, porque o Prometheus nunca tinha saído do ar; (c) a correção (descoberta por exclusão) varreu por engano o `metrics-server` (Application separada, fora do escopo do experimento), cujo `selfHeal` nunca pausado reverteu o `scale --replicas=0` sozinho — inofensivo, mas corrigido.
+7. **Dashboard "dia do jogo" nunca existiu como código** — só descoberto ao procurar as evidências visuais para este relatório. `values.yaml` já configura o sidecar do Grafana pra carregar dashboards de ConfigMaps (`grafana_dashboard`), mas o dashboard em si, confirmado visualmente na Fase 5, foi montado direto na UI e nunca commitado — com `grafana.persistence.enabled: false` (intencional), ele some a cada `terraform/envs/lab` recriado. Corrigido com `gitops/plataforma/kube-prometheus-stack/dashboard-dia-do-jogo.yaml`, os mesmos 4 painéis como ConfigMap versionado.
 
 ## Como validamos
 
@@ -48,7 +50,7 @@ Resultados completos em cada runbook — aqui só o resumo:
 
 ## Gráficos/Evidências visuais
 
-> Exportados manualmente do dashboard "dia do jogo" no Grafana (`https://grafana.<domínio>`) pelo operador — a UI não é acessível a partir desta sessão.
+> Dashboard "dia do jogo" reconstruído como código em `gitops/plataforma/kube-prometheus-stack/dashboard-dia-do-jogo.yaml` (bug 7 acima — o original da Fase 5 nunca tinha sido commitado). Depois do ArgoCD sincronizar, exportados manualmente pelo operador (`https://grafana.<domínio>`) — a UI não é acessível a partir desta sessão.
 
 - `assets/006-hit-ratio-cdn.png` — hit ratio do CloudFront durante os testes de carga. *(pendente)*
 - `assets/006-latencia-p95-p99.png` — latência p95/p99 da API cruzando os estágios dos testes (baseline, breakpoint, ondas). *(pendente)*
@@ -62,6 +64,7 @@ Resultados completos em cada runbook — aqui só o resumo:
 - **Scripts de teste (inclusive os de caos) merecem o mesmo ceticismo "existe vs. funciona" que a infraestrutura que eles testam.** Um `FAIL` de um script com um bug de descoberta de recursos (`disable-observability-stack.sh`) quase virou uma conclusão errada sobre a arquitetura — só a checagem manual da lista de workloads realmente escalados evitou isso.
 - **`maxReplicas` de um HPA é uma decisão de configuração, não um limite físico.** Os nodes seguem com folga de sobra mesmo no teto atual — subir `maxReplicas` é o próximo ajuste natural se o objetivo for suportar mais que ~800 req/s de pico, não uma mudança de estratégia de autoscaling.
 - **Pausar `selfHeal` do ArgoCD via `kubectl patch` é seguro quando formalizado como script versionado e sempre revertido** — mas precisa ser escopado com precisão (o incidente do `metrics-server` mostrou o que acontece quando um recurso fora do escopo pretendido é varrido por engano: o ArgoCD briga com a mudança, silenciosamente, sem quebrar nada, mas gerando ruído confuso no resultado).
+- **"Tudo é código" precisa de verificação ativa, não só boa intenção.** O mecanismo pra dashboards como código já existia desde a Fase 5 (sidecar do Grafana configurado, `persistence.enabled: false` de propósito) — mas nada verificou que o dashboard "dia do jogo" de fato tinha sido commitado, só que ele existia e funcionava naquela sessão. O gap ficou invisível por duas fases inteiras até alguém precisar do dashboard numa sessão nova.
 
 ## Estado final da fase
 

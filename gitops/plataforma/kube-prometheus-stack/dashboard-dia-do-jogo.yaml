@@ -1,0 +1,171 @@
+# The "dia do jogo" dashboard referenced since Phase 5 (ADR 011) as the
+# completion criterion was built ad hoc in the Grafana UI back then and
+# never committed -- with grafana.persistence.enabled: false (values.yaml,
+# on purpose: no Grafana state should survive a session that isn't code),
+# it silently disappeared the next time terraform/envs/lab was recreated.
+# Found in Phase 6 while gathering screenshots for the final report. This
+# ConfigMap is the fix: provisioned via the sidecar (grafana.sidecar.dashboards,
+# label grafana_dashboard) like any other dashboard should have been from
+# the start, so it survives every future apply/destroy cycle.
+#
+# The two CloudWatch panels (CDN hit ratio, ALB errors) depend on
+# per-session resource IDs (CloudFront distribution, ALB) resolved via the
+# $distribution_id/$load_balancer template variables below -- verify they
+# populate correctly against a real cluster; this was authored without live
+# access to check. CDN hit ratio specifically requires CloudFront
+# "Additional metrics" enabled on the distribution (extra cost, not
+# currently enabled by terraform/envs/lab/cloudfront.tf) -- if it shows "No
+# data", that's why; the CDN hit ratio was already confirmed by other means
+# (X-Cache header) in scripts/validate-cloudfront-dns-tls.sh.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-dia-do-jogo
+  namespace: minitube-platform
+  labels:
+    app.kubernetes.io/part-of: minitube
+    grafana_dashboard: "1"
+data:
+  dia-do-jogo.json: |
+    {
+      "title": "Dia do Jogo",
+      "tags": ["minitube", "phase-6"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "distribution_id",
+            "type": "query",
+            "datasource": "CloudWatch",
+            "query": {
+              "queryType": "Dimension Values",
+              "namespace": "AWS/CloudFront",
+              "metricName": "Requests",
+              "dimensionKey": "DistributionId",
+              "region": "us-east-1"
+            },
+            "refresh": 2
+          },
+          {
+            "name": "load_balancer",
+            "type": "query",
+            "datasource": "CloudWatch",
+            "query": {
+              "queryType": "Dimension Values",
+              "namespace": "AWS/ApplicationELB",
+              "metricName": "RequestCount",
+              "dimensionKey": "LoadBalancer",
+              "region": "us-east-1"
+            },
+            "refresh": 2
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Hit ratio do CDN (CloudFront)",
+          "description": "Requer 'Additional metrics' habilitado na distribution -- se vazio, ver o header X-Cache confirmado em scripts/validate-cloudfront-dns-tls.sh como evidência alternativa.",
+          "type": "timeseries",
+          "datasource": "CloudWatch",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "region": "us-east-1",
+              "namespace": "AWS/CloudFront",
+              "metricName": "CacheHitRate",
+              "dimensions": { "DistributionId": "$distribution_id", "Region": "Global" },
+              "statistic": "Average"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Latência da API (p95 / p99)",
+          "description": "Limiares do SLO (gitops/plataforma/kube-prometheus-stack/slo-rules.yaml): warning 250ms, critical 800ms.",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 0.25 },
+                  { "color": "red", "value": 0.8 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler=~\"/api.*\"}[5m])) by (le))",
+              "legendFormat": "p95"
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{handler=~\"/api.*\"}[5m])) by (le))",
+              "legendFormat": "p99"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Saturação (réplicas do HPA + CPU dos nodes)",
+          "description": "Confirma o padrão de escala das ondas (docs/runbooks/run-k6-waves.md): réplicas subindo e descendo, CPU dos nodes com folga mesmo no pico.",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "fieldConfig": { "defaults": {}, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"minitube-app\", horizontalpodautoscaler=\"api\"}",
+              "legendFormat": "réplicas api"
+            },
+            {
+              "refId": "B",
+              "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+              "legendFormat": "CPU node {{instance}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Erros da ALB (5xx)",
+          "type": "timeseries",
+          "datasource": "CloudWatch",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "region": "us-east-1",
+              "namespace": "AWS/ApplicationELB",
+              "metricName": "HTTPCode_Target_5XX_Count",
+              "dimensions": { "LoadBalancer": "$load_balancer" },
+              "statistic": "Sum",
+              "alias": "target 5xx"
+            },
+            {
+              "refId": "B",
+              "region": "us-east-1",
+              "namespace": "AWS/ApplicationELB",
+              "metricName": "HTTPCode_ELB_5XX_Count",
+              "dimensions": { "LoadBalancer": "$load_balancer" },
+              "statistic": "Sum",
+              "alias": "elb 5xx"
+            }
+          ]
+        }
+      ]
+    }
