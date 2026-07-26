@@ -64,19 +64,6 @@ resource "terraform_data" "argocd_admin_password_hash" {
   }
 }
 
-# EKS access entries return success from CreateAccessEntry/AssociateAccessPolicy
-# in ~1s, but the control plane's authorizer takes some extra seconds to
-# actually start accepting the new principal -- there's no describe/wait
-# call exposed by the API to confirm propagation. This never surfaced while
-# bootstrap_cluster_creator_admin_permissions was true, because that grant is
-# baked into cluster creation itself (~10 minutes, plenty of time to
-# propagate); now that access is 100% explicit (see comment on
-# aws_eks_cluster.lab in eks.tf), nothing else buffers that delay.
-resource "time_sleep" "operator_access_propagation" {
-  depends_on      = [aws_eks_access_entry.operator, aws_eks_access_policy_association.operator_admin]
-  create_duration = "30s"
-}
-
 resource "kubernetes_namespace_v1" "argocd" {
   metadata {
     name = local.argocd_namespace
@@ -91,11 +78,11 @@ resource "kubernetes_namespace_v1" "argocd" {
   # tear down the operator's EKS access entry before this namespace and
   # everything that depends on it (the repo secret, both helm_releases),
   # revoking kubectl access mid-destroy and leaving the k8s-side resources
-  # stuck ("cannot delete resource secrets"). This depends_on forces the
-  # correct order both ways: access granted (and propagated, via the
-  # time_sleep above) before k8s resources are created, and k8s resources
-  # torn down before access is revoked.
-  depends_on = [time_sleep.operator_access_propagation]
+  # stuck ("cannot delete resource secrets"). Depending on the whole module
+  # forces the correct order both ways: access granted (and propagated, via
+  # module.eks's own time_sleep) before k8s resources are created, and k8s
+  # resources torn down before access is revoked.
+  depends_on = [module.eks]
 }
 
 # Read from SSM Parameter Store (terraform/bootstrap/ssm.tf), not a TF_VAR --
@@ -163,7 +150,7 @@ resource "helm_release" "argocd" {
 
   # wait=true would otherwise time out waiting for pods to schedule on a
   # spot node group that's still scaling up from zero.
-  depends_on = [aws_eks_node_group.lab_spot]
+  depends_on = [module.eks]
 }
 
 # Split out from helm_release.argocd_apps below into its own release --
@@ -269,19 +256,23 @@ resource "helm_release" "argocd_apps" {
   # discovered on two separate real `destroy` runs. First attempt: only the
   # NAT gateway/private route/private associations were pinned here, but
   # the NAT gateway's own subnet is *public* -- its route to the internet
-  # gateway (aws_route.public_internet_gateway) and the public route table
-  # associations had no dependency on this release either, so Terraform
-  # destroyed them within the first minute regardless. The NAT gateway
-  # itself survived (per this fix) but sat isolated with nowhere to send
-  # traffic, so the LBC pods (private subnet) still lost all AWS API
-  # connectivity mid-cleanup, permanently stalling the resources-finalizer
-  # the same way. Pinning the *entire* egress path -- both the private side
-  # (NAT gateway, its route, its subnet associations) and the public side
-  # the NAT gateway itself depends on (internet gateway, the public route,
-  # its subnet associations) -- is what actually keeps egress alive for the
-  # whole lifetime of this release, in both directions: created before it
-  # (nodes/pods need egress from the start anyway) and destroyed only after
-  # it. See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+  # gateway and the public route table associations had no dependency on
+  # this release either, so Terraform destroyed them within the first
+  # minute regardless. The NAT gateway itself survived (per that fix) but
+  # sat isolated with nowhere to send traffic, so the LBC pods (private
+  # subnet) still lost all AWS API connectivity mid-cleanup, permanently
+  # stalling the resources-finalizer the same way. Pinning the *entire*
+  # egress path -- both the private side (NAT gateway, its route, its
+  # subnet associations) and the public side the NAT gateway itself depends
+  # on (internet gateway, the public route, its subnet associations) -- is
+  # what actually keeps egress alive for the whole lifetime of this
+  # release, in both directions: created before it (nodes/pods need egress
+  # from the start anyway) and destroyed only after it. See
+  # docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md. Originally this meant
+  # enumerating each of those 6 resources individually; since they all now
+  # live inside module.vpc (docs/adr/013-terraform-vpc-eks-modules.md),
+  # depending on the whole module is equivalent and doesn't need updating
+  # if the module's internals ever change.
   # aws_iam_role.aws_load_balancer_controller/aws_iam_role.external_dns
   # are already implicitly protected -- their ARNs are referenced directly
   # in the values below (helm.parameters), which makes this release
@@ -312,12 +303,7 @@ resource "helm_release" "argocd_apps" {
     helm_release.argocd,
     helm_release.argocd_project,
     kubernetes_secret_v1.argocd_repo_credentials,
-    aws_nat_gateway.lab,
-    aws_route.private_nat_gateway,
-    aws_route_table_association.private,
-    aws_internet_gateway.lab,
-    aws_route.public_internet_gateway,
-    aws_route_table_association.public,
+    module.vpc,
     aws_iam_role_policy.aws_load_balancer_controller,
     aws_iam_role_policy.external_dns,
     aws_iam_role_policy_attachment.ebs_csi_driver,
@@ -435,7 +421,7 @@ resource "helm_release" "argocd_apps" {
                   # scratch), so it's injected here rather than hardcoded in
                   # gitops/platform/aws-load-balancer-controller/values.yaml.
                   name  = "vpcId"
-                  value = aws_vpc.lab.id
+                  value = module.vpc.vpc_id
                 },
               ]
             }

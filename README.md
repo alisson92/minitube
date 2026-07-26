@@ -27,6 +27,7 @@ O ambiente sobe (`terraform apply`), é testado e observado, e **é destruído a
 terraform/
   bootstrap/       # bucket S3 de state (versionado, criptografado, lock nativo); repositórios ECR
   bootstrap-iam/   # permission set do operador (cloudlab-operator, via IAM Identity Center), roles do EKS, budget alert
+  modules/         # vpc, eks -- módulos reutilizáveis chamados por envs/lab
   envs/lab/        # VPC, EKS, S3 de vídeo, IAM da app, CloudFront, DNS
 gitops/      # manifests da app (Kustomize) e da plataforma (Helm via ArgoCD Application multi-source), reconciliados pelo ArgoCD
 app/         # API (FastAPI) e transcoder (FFmpeg) + Dockerfiles

@@ -14,16 +14,16 @@ provider "aws" {
 # aws_eks_cluster_auth builds a pre-signed STS URL locally to obtain a
 # short-lived cluster token — it makes no call to the EKS API itself, so it
 # doesn't block on cluster readiness. What actually orders this correctly
-# against aws_eks_cluster.lab is referencing the cluster resource's own
-# attributes below (endpoint/certificate_authority), not a hardcoded value:
-# Terraform infers the dependency from that reference.
+# against module.eks is referencing the module's own outputs below
+# (endpoint/certificate_authority_data), not a hardcoded value: Terraform
+# infers the dependency from that reference.
 data "aws_eks_cluster_auth" "lab" {
-  name = aws_eks_cluster.lab.name
+  name = module.eks.cluster_name
 }
 
 provider "kubernetes" {
-  host                   = aws_eks_cluster.lab.endpoint
-  cluster_ca_certificate = base64decode(aws_eks_cluster.lab.certificate_authority[0].data)
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
   token                  = data.aws_eks_cluster_auth.lab.token
 }
 
@@ -33,8 +33,8 @@ provider "kubernetes" {
 # fails terraform validate.
 provider "helm" {
   kubernetes = {
-    host                   = aws_eks_cluster.lab.endpoint
-    cluster_ca_certificate = base64decode(aws_eks_cluster.lab.certificate_authority[0].data)
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
     token                  = data.aws_eks_cluster_auth.lab.token
   }
 }
