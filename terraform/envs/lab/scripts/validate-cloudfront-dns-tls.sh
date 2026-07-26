@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
-# Functional smoke test for Phase 4: proves app.<domain> actually serves real
-# HLS content through CloudFront over valid HTTPS (not just "distribution
-# status is Deployed"), and that argocd.<domain> resolves and serves the
-# ArgoCD UI straight through the ALB. Mirrors the "existe vs. funciona"
-# principle from docs/engineering-standards.md §11.
+# Functional smoke test: proves app.<domain> serves real HLS content through
+# CloudFront over valid HTTPS (not just "distribution status is Deployed"),
+# and argocd.<domain> serves the UI straight through the ALB. Mirrors
+# "existe vs. funciona" (docs/engineering-standards.md §11).
 #
 # Usage: AWS_PROFILE=cloudlab ./scripts/validate-cloudfront-dns-tls.sh
-# Run from terraform/envs/lab/ (the script also cds there automatically).
-# Requires: terraform apply already ran (CloudFront, the 3 platform IRSA
-# roles, and the add-on Applications come from terraform/envs/lab/argocd.tf
-# and cloudfront.tf) and ArgoCD has finished syncing the add-ons -- see
-# docs/runbooks/validate/validate-cloudfront-dns-tls.md. DNS propagation for a
-# freshly-created record can lag behind Route53 itself by a few minutes on
-# some resolvers -- the polling below accounts for that, it isn't a bug if
-# the early checks take a while.
+# Requires terraform apply already ran and ArgoCD finished syncing the
+# add-ons -- see docs/runbooks/validate/validate-cloudfront-dns-tls.md.
+# DNS propagation can lag Route53 by a few minutes on some resolvers -- the
+# polling below accounts for that.
 
 set -euo pipefail
 

@@ -1,28 +1,15 @@
 #!/usr/bin/env bash
 # Chaos experiment: takes down Prometheus, Alertmanager, Grafana and Loki
-# (the "kube-prometheus-stack" and "loki" ArgoCD Applications, both in
-# minitube-platform) while generating real traffic against the API and the
-# HLS playlist, to confirm the app's blast radius is actually contained --
-# it keeps serving video with zero observability, it doesn't go down with
-# it. Workloads to scale are discovered by EXCLUDING the shared platform
-# add-ons that live in the same namespace but aren't part of this
-# experiment (aws-load-balancer-controller, external-dns, cert-manager, the
-# EBS CSI driver) -- not by including via app.kubernetes.io/instance, which
-# only covers resources templated directly by Helm. The Prometheus Operator
-# creates the actual Prometheus/Alertmanager StatefulSets dynamically with
-# its own labels, so an include-based query silently missed them (confirmed
-# for real -- see docs/runbooks/chaos/chaos-disable-observability-stack.md).
-#
-# ArgoCD's selfHeal would otherwise revert `kubectl scale --replicas=0`
-# within seconds, treating it as drift -- same technique already used (and
-# recorded in CLAUDE.md) during manual destroy troubleshooting, formalized
-# here as a versioned, self-cleaning script: pause each Application's
-# syncPolicy, scale to zero, observe, then always restore both the original
-# replica counts and the original syncPolicy on exit, in reverse order.
+# (kube-prometheus-stack + loki Applications) while generating real traffic
+# against the API and HLS playlist, confirming the app's blast radius is
+# contained -- it keeps serving with zero observability, doesn't go down
+# with it. Pauses each Application's syncPolicy first (ArgoCD's selfHeal
+# would otherwise revert `kubectl scale --replicas=0` as drift), then
+# always restores both replica counts and syncPolicy on exit.
 #
 # Usage: AWS_PROFILE=cloudlab ./chaos/disable-observability-stack.sh
-# See docs/runbooks/chaos/chaos-disable-observability-stack.md for what to expect
-# and how to read the result.
+# See docs/runbooks/chaos/chaos-disable-observability-stack.md for what to
+# expect and how to read the result.
 
 set -euo pipefail
 
@@ -121,23 +108,13 @@ for app in "${APPLICATIONS[@]}"; do
 done
 echo "PASS: selfHeal paused."
 
-# Excludes the OTHER platform add-ons that share this namespace but aren't
-# part of this experiment, instead of trying to include by
-# app.kubernetes.io/instance -- that label only reflects resources templated
-# directly by the kube-prometheus-stack/loki Helm charts. The Prometheus and
-# Alertmanager StatefulSets are NOT among those: the Prometheus Operator
-# creates them dynamically from the Prometheus/Alertmanager CRs with its own
-# labeling scheme, so an include-by-instance-label query silently misses
-# them -- confirmed for real on 2026-07-26 (see
-# docs/runbooks/chaos/chaos-disable-observability-stack.md): the first fixed run
-# scaled grafana/kube-state-metrics/operator/operator-webhook/loki, but
-# Prometheus itself stayed up the whole time. metrics-server is excluded
-# too -- it's a separate Application (Phase 6, ADR 012, for the HPA's own
-# metrics), not part of the observability stack this experiment targets;
-# an earlier version of this exclusion list missed it, swept it up, and its
-# selfHeal (never paused, since it isn't in APPLICATIONS) silently reverted
-# the scale-down within the 90s wait -- harmless here (it was never
-# supposed to be touched), but confusing output and out of scope.
+# Excludes the OTHER platform add-ons sharing this namespace, rather than
+# including by app.kubernetes.io/instance -- that label misses the
+# Prometheus/Alertmanager StatefulSets, which the Prometheus Operator
+# creates dynamically with its own labeling scheme (confirmed for real, see
+# docs/runbooks/chaos/chaos-disable-observability-stack.md). metrics-server
+# is excluded too: separate Application (ADR 012), not part of this
+# experiment's scope.
 EXCLUDED_WORKLOADS='^(aws-load-balancer-controller|external-dns|cert-manager|cert-manager-cainjector|cert-manager-webhook|ebs-csi-controller|metrics-server)$'
 echo "Discovering Deployments/StatefulSets in ${PLATFORM_NAMESPACE} that are part of the observability stack (everything except: ${EXCLUDED_WORKLOADS})..."
 mapfile -t scaled_workloads < <(kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" get deploy,statefulset \

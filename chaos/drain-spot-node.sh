@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
 # Chaos experiment: simulates a spot node interruption via cordon+drain
-# (not a real EC2 termination -- that would fight the ASG's desired_size,
-# fixed at 3/3/3 since Phase 5, and risks drifting Terraform state) and
-# confirms workloads reschedule onto the remaining nodes within a bounded
-# timeout. Deliberately skips nodes hosting PVC-backed pods (Prometheus,
-# Loki, Grafana) by default -- an EBS volume is AZ-bound, so draining that
-# node would make its pod Pending for a *storage* reason, not the node-loss
-# behavior this experiment is meant to exercise.
-#
-# Always uncordons the target node on exit, even on failure -- that's the
-# whole point of the trap here, a node must never come out of this script
-# still marked unschedulable.
+# (not a real EC2 termination, which would fight the ASG's fixed
+# desired_size and risk drifting Terraform state), confirming workloads
+# reschedule within a bounded timeout. Skips nodes hosting PVC-backed pods
+# by default -- an EBS volume is AZ-bound, so draining that node tests a
+# storage failure, not the node-loss behavior this experiment targets.
+# Always uncordons the target node on exit, even on failure.
 #
 # Usage: AWS_PROFILE=cloudlab ./chaos/drain-spot-node.sh
 # See docs/runbooks/chaos/chaos-drain-spot-node.md for what to expect and how to

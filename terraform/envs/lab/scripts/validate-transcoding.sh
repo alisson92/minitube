@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
-# Functional smoke test for the app: generates a synthetic test video with
-# FFmpeg (no binary committed to the repo), uploads it through the real
-# API (POST /api/videos), waits for the Job it creates to finish, and confirms
-# real HLS output (playlist + at least one segment) landed in S3 -- proves
-# the whole pipeline (API -> S3 raw -> Job -> FFmpeg -> S3 hls), not just
-# that `kubectl apply` and `terraform apply` exited 0.
+# Functional smoke test: generates a synthetic test video with FFmpeg (no
+# binary committed), uploads it via the real API, waits for the transcode
+# Job, and confirms real HLS output landed in S3 -- proves the whole
+# pipeline, not just that `apply` exited 0.
 #
 # Usage: AWS_PROFILE=cloudlab ./scripts/validate-transcoding.sh
-# Run from terraform/envs/lab/ (the script also cds there automatically).
-# Requires: ArgoCD installed and gitops/app/ synced from Git (see
-# docs/runbooks/validate/validate-argocd-gitops.md) and both images already pushed to
-# ECR -- see docs/runbooks/validate/validate-transcoding.md. Never run
-# `kubectl apply -k` manually from Phase 3 onward.
+# Requires ArgoCD synced and both images pushed to ECR -- see
+# docs/runbooks/validate/validate-transcoding.md.
 
 set -euo pipefail
 
@@ -97,12 +92,10 @@ while [[ "$status" != "succeeded" && "$status" != "failed" ]]; do
   fi
   sleep 5
   elapsed=$((elapsed + 5))
-  # A single transient curl/port-forward hiccup shouldn't kill the whole
-  # script (set -e + pipefail would otherwise abort silently mid-loop) -- but
-  # a real, repeated API error (e.g. 500 from a bug) shouldn't be silently
-  # treated as "still running" until the timeout either. GET /videos returns
-  # {"video_id":...,"status":...} on success; anything else (including a
-  # FastAPI {"detail":...} error body) fails the jq lookup for .status.
+  # A transient curl/port-forward hiccup shouldn't kill the script (set -e +
+  # pipefail would abort mid-loop), but a real repeated API error shouldn't
+  # be silently treated as "still running" either -- an error body fails
+  # the jq lookup for .status instead of matching it.
   raw_response=$(curl -s "http://127.0.0.1:${LOCAL_PORT}/api/videos/${video_id}" 2>/dev/null) || raw_response=""
   polled_status=$(jq -r '.status // empty' <<< "$raw_response" 2>/dev/null) || polled_status=""
   if [[ -z "$polled_status" ]]; then

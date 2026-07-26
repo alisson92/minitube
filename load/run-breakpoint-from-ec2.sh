@@ -1,20 +1,12 @@
 #!/usr/bin/env bash
-# Same test as load/run-breakpoint.sh, but the k6 process itself runs from an
-# ephemeral EC2 instance inside the lab VPC instead of the operator's local
-# machine. Local runs go operator -> WSL2 -> home ISP -> internet -> AWS; an
-# investigation on 2026-07-24 (see docs/runbooks/load/run-k6-breakpoint.md,
-# section "Investigacao da latencia") found that path can add multi-second
-# latency noise the server side never sees -- ALB TargetResponseTime and the
-# API's own Prometheus histogram both stayed fast (<=145ms / <=0.5s
-# respectively) during a run where k6 itself reported p95=1s/max=7.54s.
-# Running the load generator from inside AWS removes that variable.
-#
-# Reuses the same ephemeral-EC2-via-SSM pattern as
-# terraform/envs/lab/scripts/validate-network.sh (private subnet, no public
-# IP, no SSH/bastion, instance always terminated on exit) and the exact same
-# IAM instance profile (SSM access only -- explicitly documented as
-# "reusable across future validation scripts" in
-# terraform/bootstrap-iam/main.tf) -- no new Terraform resources needed.
+# Same test as load/run-breakpoint.sh, but k6 itself runs from an ephemeral
+# EC2 instance inside the lab VPC instead of locally -- local runs add
+# client-side network noise the server side never sees (see
+# docs/runbooks/load/run-k6-breakpoint.md, "Investigacao da latencia").
+# Reuses the same ephemeral-EC2-via-SSM pattern (private subnet, no public
+# IP, always terminated on exit) and IAM instance profile as
+# terraform/envs/lab/scripts/validate-network.sh -- no new Terraform
+# resources needed.
 #
 # Usage: AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh
 # Escalate: PEAK_RATE=800 AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh

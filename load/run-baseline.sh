@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
-# Orchestrates the Phase 6 baseline load test: finds (or creates) a real,
-# already-transcoded test video, then runs load/k6/baseline.js against it.
-# This is a deliberately SMALL/growing load, already validated to hold
-# (0% errors, p95 well under the 500ms SLO placeholder -- see
-# docs/runbooks/load/run-k6-baseline.md for the actual result). To escalate load
-# and find the real breaking point, use load/run-breakpoint.sh instead of
-# raising the numbers in this script.
+# Finds (or creates) a real, already-transcoded test video, then runs
+# load/k6/baseline.js against it -- a deliberately small/growing load,
+# already validated to hold. To escalate and find the real breaking point,
+# use load/run-breakpoint.sh instead of raising the numbers here. See
+# docs/runbooks/load/run-k6-baseline.md.
 #
 # Usage: AWS_PROFILE=cloudlab ./load/run-baseline.sh
-# Can be run from anywhere -- paths below are relative to this script's own
-# location, not the caller's cwd.
 # Requires: k6, aws, jq, terraform, kubectl, curl, ffmpeg in PATH; terraform
-# apply already ran in terraform/envs/lab and ArgoCD has synced gitops/app/
-# (see docs/runbooks/validate/validate-transcoding.md).
+# apply already ran and ArgoCD has synced gitops/app/.
 
 set -euo pipefail
 
