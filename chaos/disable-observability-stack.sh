@@ -4,10 +4,14 @@
 # minitube-platform) while generating real traffic against the API and the
 # HLS playlist, to confirm the app's blast radius is actually contained --
 # it keeps serving video with zero observability, it doesn't go down with
-# it. Deliberately scoped to just these two Applications: the shared ALB
-# (aws-load-balancer-controller), DNS (external-dns), certs (cert-manager)
-# and the EBS CSI driver all live in the same namespace but are NOT part of
-# this experiment and are never touched.
+# it. Workloads to scale are discovered by EXCLUDING the shared platform
+# add-ons that live in the same namespace but aren't part of this
+# experiment (aws-load-balancer-controller, external-dns, cert-manager, the
+# EBS CSI driver) -- not by including via app.kubernetes.io/instance, which
+# only covers resources templated directly by Helm. The Prometheus Operator
+# creates the actual Prometheus/Alertmanager StatefulSets dynamically with
+# its own labels, so an include-based query silently missed them (confirmed
+# for real -- see docs/runbooks/chaos-disable-observability-stack.md).
 #
 # ArgoCD's selfHeal would otherwise revert `kubectl scale --replicas=0`
 # within seconds, treating it as drift -- same technique already used (and
@@ -117,12 +121,25 @@ for app in "${APPLICATIONS[@]}"; do
 done
 echo "PASS: selfHeal paused."
 
-echo "Discovering Deployments/StatefulSets owned by these Applications (via app.kubernetes.io/instance)..."
+# Excludes the OTHER platform add-ons that share this namespace but aren't
+# part of this experiment, instead of trying to include by
+# app.kubernetes.io/instance -- that label only reflects resources templated
+# directly by the kube-prometheus-stack/loki Helm charts. The Prometheus and
+# Alertmanager StatefulSets are NOT among those: the Prometheus Operator
+# creates them dynamically from the Prometheus/Alertmanager CRs with its own
+# labeling scheme, so an include-by-instance-label query silently misses
+# them -- confirmed for real on 2026-07-26 (see
+# docs/runbooks/chaos-disable-observability-stack.md): the first fixed run
+# scaled grafana/kube-state-metrics/operator/operator-webhook/loki, but
+# Prometheus itself stayed up the whole time.
+EXCLUDED_WORKLOADS='^(aws-load-balancer-controller|external-dns|cert-manager|cert-manager-cainjector|cert-manager-webhook|ebs-csi-controller)$'
+echo "Discovering Deployments/StatefulSets in ${PLATFORM_NAMESPACE} that are part of the observability stack (everything except: ${EXCLUDED_WORKLOADS})..."
 mapfile -t scaled_workloads < <(kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" get deploy,statefulset \
-  -l "app.kubernetes.io/instance in (${APPLICATIONS[0]},${APPLICATIONS[1]})" \
-  -o jsonpath='{range .items[*]}{.kind}{"/"}{.metadata.name}{"\n"}{end}' | sed 's/^Deployment/deployment/; s/^StatefulSet/statefulset/')
+  -o jsonpath='{range .items[*]}{.kind}{"/"}{.metadata.name}{"\n"}{end}' \
+  | sed 's/^Deployment/deployment/; s/^StatefulSet/statefulset/' \
+  | awk -F/ -v exclude="$EXCLUDED_WORKLOADS" '$2 !~ exclude')
 if (( ${#scaled_workloads[@]} == 0 )); then
-  echo "FAIL: no Deployments/StatefulSets found with label app.kubernetes.io/instance in (${APPLICATIONS[*]}) in $PLATFORM_NAMESPACE -- check the label actually matches this chart's release (kubectl -n $PLATFORM_NAMESPACE get deploy,statefulset --show-labels)." >&2
+  echo "FAIL: no Deployments/StatefulSets left in $PLATFORM_NAMESPACE after excluding the shared platform add-ons -- check what's actually running (kubectl -n $PLATFORM_NAMESPACE get deploy,statefulset)." >&2
   exit 1
 fi
 echo "Workloads to scale to zero:"
@@ -138,15 +155,26 @@ for workload in "${scaled_workloads[@]}"; do
   kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" scale "$workload" --replicas=0
 done
 
-echo "Waiting for pods to actually terminate..."
-kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" wait pod \
-  -l "app.kubernetes.io/instance in (${APPLICATIONS[0]},${APPLICATIONS[1]})" \
-  --for=delete --timeout=90s 2>/dev/null || true
+echo "Waiting for each scaled workload to actually report zero replicas..."
+for workload in "${scaled_workloads[@]}"; do
+  elapsed=0
+  while true; do
+    current=$(kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" get "$workload" -o jsonpath='{.status.replicas}' 2>/dev/null || echo "")
+    [[ -z "$current" || "$current" == "0" ]] && break
+    if (( elapsed >= 90 )); then
+      echo "WARN: $workload still reports ${current} replica(s) after 90s -- continuing anyway" >&2
+      break
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+  done
+done
 
 echo ""
-echo "--- Observability stack state (should be empty or Terminating) ---"
-kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" get pods \
-  -l "app.kubernetes.io/instance in (${APPLICATIONS[0]},${APPLICATIONS[1]})"
+echo "--- Observability stack state after scale-down (should all show 0 replicas) ---"
+for workload in "${scaled_workloads[@]}"; do
+  kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" get "$workload"
+done
 
 echo "Starting port-forward to the api Service on localhost:${LOCAL_PORT}..."
 kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" port-forward svc/api "${LOCAL_PORT}:80" >/dev/null 2>&1 &

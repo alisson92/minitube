@@ -20,13 +20,13 @@ Variáveis de ambiente opcionais:
 
 **Sobre pausar `selfHeal` via `kubectl patch`:** essa técnica já foi usada (e registrada na seção "Estado atual" do `CLAUDE.md`) durante troubleshooting manual de `terraform destroy` em sessões anteriores. Este script a formaliza como procedimento versionado e sempre revertido — nunca uma mudança permanente fora do Git. O `trap cleanup EXIT` restaura, na ordem inversa, primeiro as réplicas originais (capturadas antes de qualquer mutação) e só depois o `syncPolicy` original de cada Application, para que o ArgoCD não entre em sync no meio da restauração das réplicas.
 
-**Descoberta de recursos:** o script encontra os Deployments/StatefulSets a escalar via o label `app.kubernetes.io/instance in (kube-prometheus-stack, loki)` — o nome do release Helm que o ArgoCD usa por padrão é o próprio nome da Application (nenhum `releaseName` é sobrescrito em `terraform/envs/lab/argocd.tf`). Se a descoberta retornar vazio, o script falha com uma mensagem indicando como inspecionar os labels manualmente.
+**Descoberta de recursos:** o script escala tudo em `minitube-platform` **exceto** os add-ons de plataforma que não fazem parte deste experimento (`aws-load-balancer-controller`, `external-dns`, `cert-manager*`, `ebs-csi-controller`) — uma lista de exclusão, não de inclusão. A primeira versão usava inclusão via `app.kubernetes.io/instance in (kube-prometheus-stack, loki)`, que cobre os recursos templados direto pelo chart Helm (Grafana, kube-state-metrics, o operator e seu webhook, Loki) mas **não** o StatefulSet real do Prometheus/Alertmanager — esses são criados dinamicamente pelo Prometheus Operator a partir dos CRs `Prometheus`/`Alertmanager`, com um esquema de labels próprio do operator, não o label de instância do Helm. Ver "Resultado da execução" abaixo — esse gap só apareceu rodando de verdade.
 
 ## Como ler o resultado
 
 - **PASS:** taxa de erro 0% (ou dentro do limiar configurado) durante toda a janela — a API e o HLS seguiram servindo tráfego sem nenhuma dependência real da stack de observabilidade em runtime.
-- **FAIL:** algo na aplicação depende da stack de observabilidade estar de pé — investigar se algum `initContainer`/sidecar/health check da API consulta Prometheus/Loki diretamente (não deveria).
-- Ao final, confira que a stack voltou: `kubectl -n minitube-platform get pods -l 'app.kubernetes.io/instance in (kube-prometheus-stack,loki)'` — todos `Running`, e `kubectl -n argocd get applications kube-prometheus-stack loki` de volta a `Synced`/`Healthy` (o `selfHeal` reconcilia sozinho depois do `syncPolicy` restaurado).
+- **FAIL:** algo na aplicação depende da stack de observabilidade estar de pé — investigar se algum `initContainer`/sidecar/health check da API consulta Prometheus/Loki diretamente (não deveria). **Antes de aceitar essa conclusão, confirme que o Prometheus/Alertmanager de verdade foram escalados a zero** (`kubectl -n minitube-platform get statefulset` — ambos devem aparecer na lista impressa em "Workloads to scale to zero") — um `FAIL` com esses dois ainda de pé não prova nada sobre blast radius, só que algo mais aconteceu durante a janela.
+- Ao final, confira que a stack voltou: `kubectl -n minitube-platform get deploy,statefulset` — todos com as réplicas originais, e `kubectl -n argocd get applications kube-prometheus-stack loki` de volta a `Synced`/`Healthy` (o `selfHeal` reconcilia sozinho depois do `syncPolicy` restaurado).
 
 ## Resultado da execução (2026-07-26) — bug real encontrado e corrigido, resultado ainda pendente
 
@@ -36,4 +36,14 @@ Primeira execução real: pausou o `selfHeal` das duas Applications, descobriu e
 
 **Corrigido:** o script agora reaproveita `load/lib/find-or-create-video.sh` (a mesma lib usada por `run-breakpoint-from-ec2.sh`/`run-waves-from-ec2.sh`), que acha um vídeo já transcodificado direto no S3 — sem depender de nenhuma rota de listagem que nunca existiu.
 
-**Ainda não revalidado** — a correção não foi reexecutada contra o cluster real nesta sessão. Próximo passo: rodar de novo (`AWS_PROFILE=cloudlab ./chaos/disable-observability-stack.sh`) para obter o resultado real de taxa de erro.
+## Resultado da execução (2026-07-26, pós-fix #1) — segundo bug real: Prometheus/Alertmanager nunca foram derrubados
+
+Reexecutado após o fix do `video_id`. Desta vez o script rodou até o fim e reportou `FAIL`: 6 de 32 requisições não-200 (`18,75%`) na janela de 60s.
+
+**Antes de aceitar essa conclusão, confirmei a lista de workloads escalados nas duas execuções (a original e esta):** nunca incluiu o StatefulSet do Prometheus nem do Alertmanager — só `kube-prometheus-stack-grafana`, `-kube-state-metrics`, `-operator`, `-operator-webhook` e `statefulset/loki`. **O Prometheus (e o Alertmanager) ficaram de pé o tempo todo** — o experimento nunca testou o que se propõe a testar, então o `FAIL` de 18,75% não pode ser atribuído a "a app depende da stack de observabilidade" sem mais evidência.
+
+**Causa raiz:** a descoberta original incluía por `app.kubernetes.io/instance` (label do Helm), que só cobre recursos templados diretamente pelo chart — o Prometheus Operator cria o StatefulSet real do Prometheus/Alertmanager dinamicamente a partir dos CRs, com labels próprios do operator, nunca vistos pela query original.
+
+**Corrigido:** a descoberta agora exclui por nome os add-ons que não fazem parte do experimento (`aws-load-balancer-controller`, `external-dns`, `cert-manager*`, `ebs-csi-controller`) e escala **tudo o mais** em `minitube-platform` — cobre Prometheus/Alertmanager independente de como o operator os rotula. O "wait" e a checagem de estado pós-scale-down também foram trocados de um seletor de pods (mesmo problema) para polling direto de `.status.replicas` de cada workload descoberto.
+
+**Ainda não revalidado com a descoberta corrigida** — os 18,75% de erro observados nesta execução também não foram investigados a fundo (Prometheus/Alertmanager nunca caíram, então a causa é outra coisa — possivelmente não relacionada ao experimento em si). Próximo passo: rodar de novo (`AWS_PROFILE=cloudlab ./chaos/disable-observability-stack.sh`) com a descoberta corrigida, confirmar que o Prometheus real aparece na lista de workloads escalados, e só então avaliar a taxa de erro reportada.
