@@ -26,18 +26,19 @@ O ambiente sobe (`terraform apply`), é testado e observado, e **é destruído a
 ```
 terraform/
   bootstrap/       # bucket S3 de state (versionado, criptografado, lock nativo); repositórios ECR
-  bootstrap-iam/   # usuário operacional cloudlab-operator (admin-only, via CloudShell)
+  bootstrap-iam/   # permission set do operador (cloudlab-operator, via IAM Identity Center), roles do EKS, budget alert
   envs/lab/        # VPC, EKS, S3 de vídeo, IAM da app, CloudFront, DNS
-gitops/      # manifests da app e da plataforma (Kustomize), reconciliados pelo ArgoCD
+gitops/      # manifests da app (Kustomize) e da plataforma (Helm via ArgoCD Application multi-source), reconciliados pelo ArgoCD
 app/         # API (FastAPI) e transcoder (FFmpeg) + Dockerfiles
 load/        # cenários k6
+chaos/       # experimentos de caos (kill pod, drain node, derrubar observabilidade)
 docs/        # motivação, ADRs, runbooks e retrospectos por fase
 ```
 
 ## Como começar
 
-O bootstrap de uma conta AWS nova (conta dedicada, usuário operacional via Terraform, backend remoto de state) está documentado passo a passo em [`docs/runbooks/aws-account-bootstrap.md`](docs/runbooks/aws-account-bootstrap.md).
+O bootstrap de uma conta AWS nova (conta dedicada, operador via IAM Identity Center provisionado por Terraform, backend remoto de state) está documentado passo a passo em [`docs/runbooks/aws-account-bootstrap.md`](docs/runbooks/aws-account-bootstrap.md).
 
 ## Status
 
-🚧 **Fase 5 — Observabilidade, prestes a começar.** Fases 1–4 encerradas: backend remoto, VPC, EKS com node group spot e budget alert ([`docs/phases/001-terraform-foundation.md`](docs/phases/001-terraform-foundation.md)); API (FastAPI) + transcoder (FFmpeg) como Job no EKS, gravando HLS no S3 ([`docs/phases/002-application.md`](docs/phases/002-application.md)); ArgoCD instalado via Terraform, `gitops/app/` e `gitops/platform/` reconciliados a partir do Git, sem nenhum `kubectl apply` manual ([`docs/phases/003-gitops.md`](docs/phases/003-gitops.md)); CloudFront + Route 53 + cert-manager servindo `app.<domínio>` com HTTPS válido ([ADR 008](docs/adr/008-cloudfront-dns-tls.md); retrospecto formal da fase ainda pendente em `docs/phases/`). O roteiro completo das fases, as convenções e o estado vivo do projeto estão em [`CLAUDE.md`](CLAUDE.md).
+✅ **Roadmap completo — todas as 6 fases encerradas.** Fundação Terraform: backend remoto, VPC, EKS com node group spot e budget alert ([`docs/phases/001-terraform-foundation.md`](docs/phases/001-terraform-foundation.md)). Aplicação: API (FastAPI) + transcoder (FFmpeg) como Job no EKS, gravando HLS no S3 ([`docs/phases/002-application.md`](docs/phases/002-application.md)). GitOps: ArgoCD reconciliando `gitops/app/` e `gitops/platform/` a partir do Git, sem nenhum `kubectl apply` manual ([`docs/phases/003-gitops.md`](docs/phases/003-gitops.md)). Borda/DNS/TLS: CloudFront + Route 53 + cert-manager servindo `app.<domínio>` com HTTPS válido ([`docs/phases/004-edge-dns-tls.md`](docs/phases/004-edge-dns-tls.md)). Observabilidade: dashboard "dia do jogo" com hit ratio de CDN, latência p95/p99, saturação e erros ([`docs/phases/005-observability.md`](docs/phases/005-observability.md)). Dia do jogo: testes de carga k6, HPA por CPU e experimentos de caos, com relatório final de "o que quebrou primeiro" ([`docs/phases/006-game-day.md`](docs/phases/006-game-day.md)). Trabalho futuro é opcional — ver "Próximos passos" no [`CLAUDE.md`](CLAUDE.md).
