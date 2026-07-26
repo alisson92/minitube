@@ -6,7 +6,7 @@ Aceito
 
 ## Contexto
 
-Critério de conclusão da Fase 3 (`CLAUDE.md`): "Nenhum `kubectl apply` manual — todo deploy sai do Git". O ADR 006 (item 7) já registrava essa lacuna como exceção temporária: `gitops/app/` era aplicado manualmente via `kubectl apply -k`, com a promessa explícita de que "nenhum `kubectl apply` continuará manual além da Fase 3". Esta fase instala o ArgoCD e faz ele assumir a reconciliação completa de `gitops/app/`, além de preparar `gitops/plataforma/` (inexistente até aqui) para os componentes de observabilidade da Fase 5.
+Critério de conclusão da Fase 3 (`CLAUDE.md`): "Nenhum `kubectl apply` manual — todo deploy sai do Git". O ADR 006 (item 7) já registrava essa lacuna como exceção temporária: `gitops/app/` era aplicado manualmente via `kubectl apply -k`, com a promessa explícita de que "nenhum `kubectl apply` continuará manual além da Fase 3". Esta fase instala o ArgoCD e faz ele assumir a reconciliação completa de `gitops/app/`, além de preparar `gitops/platform/` (inexistente até aqui) para os componentes de observabilidade da Fase 5.
 
 O repositório GitHub (`alisson92/minitube`) é **privado** — o ArgoCD, rodando dentro do cluster, precisa de credencial própria para clonar o Git; não herda a chave SSH local do operador.
 
@@ -18,11 +18,11 @@ O chart oficial `argo-cd` (repositório `argo-helm`) é instalado como um `helm_
 
 ### 2. Bootstrap das Applications raiz via chart `argocd-apps`, não uma Application YAML aplicada manualmente
 
-O chart `argocd-apps` (mesmo repositório `argo-helm`) permite declarar `Application`/`AppProject`/`ApplicationSet` via values do Helm. Usado como um segundo `helm_release` para criar duas Applications raiz — `app` (aponta para `gitops/app`, destino `minitube-app`) e `platform` (aponta para `gitops/plataforma`, destino `minitube-platform`) — e o `AppProject minitube-platform`. Isso fecha o próprio ato de "dar o primeiro `kubectl apply` para o ArgoCD existir": mesmo a criação das Applications continua 100% declarativa e reprodutível via `terraform apply`, em vez de reabrir a exceção que esta fase deveria encerrar.
+O chart `argocd-apps` (mesmo repositório `argo-helm`) permite declarar `Application`/`AppProject`/`ApplicationSet` via values do Helm. Usado como um segundo `helm_release` para criar duas Applications raiz — `app` (aponta para `gitops/app`, destino `minitube-app`) e `platform` (aponta para `gitops/platform`, destino `minitube-platform`) — e o `AppProject minitube-platform`. Isso fecha o próprio ato de "dar o primeiro `kubectl apply` para o ArgoCD existir": mesmo a criação das Applications continua 100% declarativa e reprodutível via `terraform apply`, em vez de reabrir a exceção que esta fase deveria encerrar.
 
-### 3. `gitops/plataforma/` criado agora só com `README.md`; `AppProject` declarado via Terraform, não dentro do diretório Git
+### 3. `gitops/platform/` criado agora só com `README.md`; `AppProject` declarado via Terraform, não dentro do diretório Git
 
-O diretório é criado nesta fase (com a Application `platform` já apontando para ele) mesmo sem conteúdo real ainda — a Fase 5 (kube-prometheus-stack/Loki) só vai precisar adicionar manifests a um Git path que já existe e já está sendo sincronizado, sem tocar Terraform de novo. O `AppProject minitube-platform` fica declarado via Terraform (chart `argocd-apps`), não como um manifest dentro de `gitops/plataforma/`: colocá-lo ali criaria um problema de ovo-e-galinha — a própria Application que sincroniza esse diretório precisa referenciar um `project` que, se vivesse só no Git, ainda não existiria no primeiro sync.
+O diretório é criado nesta fase (com a Application `platform` já apontando para ele) mesmo sem conteúdo real ainda — a Fase 5 (kube-prometheus-stack/Loki) só vai precisar adicionar manifests a um Git path que já existe e já está sendo sincronizado, sem tocar Terraform de novo. O `AppProject minitube-platform` fica declarado via Terraform (chart `argocd-apps`), não como um manifest dentro de `gitops/platform/`: colocá-lo ali criaria um problema de ovo-e-galinha — a própria Application que sincroniza esse diretório precisa referenciar um `project` que, se vivesse só no Git, ainda não existiria no primeiro sync.
 
 ### 4. Deploy key SSH somente-leitura dedicada
 
@@ -40,7 +40,7 @@ Sem Ingress/DNS/TLS ainda — isso é entregável da Fase 4 (`app.<domínio>`, `
 
 ### 7. Self-management do ArgoCD (padrão app-in-app) adiado
 
-Avaliado e descartado por ora. A infraestrutura de `envs/lab` é destruída e recriada toda sessão — logo o ArgoCD sempre vai precisar de um bootstrap externo ao Git no início de cada sessão (o próprio `helm_release.argocd`), independentemente de ele passar a se auto-gerenciar depois disso. Implementar self-management agora duplicaria a definição do chart `argo-cd` em dois lugares (o `helm_release` inicial do Terraform e uma futura Application que assumiria o gerenciamento) — dois pontos de verdade para os mesmos values, risco real de drift entre eles, sem ganho prático neste estágio: não há hoje múltiplos operadores mudando a configuração do próprio ArgoCD, nem necessidade de auditar essas mudanças via PR. Fica registrado como candidato futuro em `gitops/plataforma/README.md`, a reconsiderar apenas se o ArgoCD passar a ser infraestrutura persistente entre sessões (o que contradiria o princípio de efemeridade já validado) ou se o projeto ganhar múltiplos operadores.
+Avaliado e descartado por ora. A infraestrutura de `envs/lab` é destruída e recriada toda sessão — logo o ArgoCD sempre vai precisar de um bootstrap externo ao Git no início de cada sessão (o próprio `helm_release.argocd`), independentemente de ele passar a se auto-gerenciar depois disso. Implementar self-management agora duplicaria a definição do chart `argo-cd` em dois lugares (o `helm_release` inicial do Terraform e uma futura Application que assumiria o gerenciamento) — dois pontos de verdade para os mesmos values, risco real de drift entre eles, sem ganho prático neste estágio: não há hoje múltiplos operadores mudando a configuração do próprio ArgoCD, nem necessidade de auditar essas mudanças via PR. Fica registrado como candidato futuro em `gitops/platform/README.md`, a reconsiderar apenas se o ArgoCD passar a ser infraestrutura persistente entre sessões (o que contradiria o princípio de efemeridade já validado) ou se o projeto ganhar múltiplos operadores.
 
 ### 8. Ordem de execução no `terraform apply`
 
@@ -67,7 +67,7 @@ Também descoberto em teste real: como o `cloudlab-operator` passou a ser quem c
 - **`helm install` manual:** descartada — reintroduz um passo imperativo que precisaria ser lembrado e reexecutado a cada sessão, quebrando o princípio de infraestrutura efêmera "indolor de recriar".
 - **Argo CD Autopilot:** descartada — ferramenta de bootstrap própria, foge do padrão Terraform-first já estabelecido nas fases anteriores; não traz benefício didático adicional para este projeto.
 - **`Application` YAML aplicada manualmente uma vez:** descartada — reabriria, mesmo que só uma vez, a exceção de `kubectl apply` manual que a Fase 3 existe para encerrar.
-- **`AppProject` dentro de `gitops/plataforma/`:** descartada — problema de ovo-e-galinha (ver decisão 3).
+- **`AppProject` dentro de `gitops/platform/`:** descartada — problema de ovo-e-galinha (ver decisão 3).
 - **PAT (Personal Access Token):** descartada — escopo tipicamente mais amplo que uma deploy key, sujeito a expiração, gerenciado à parte da configuração do repositório.
 - **Tornar o repositório público:** descartada nesta decisão — eliminaria a necessidade de credencial, mas exporia publicamente ADRs com detalhes de conta AWS e todo o histórico do projeto. **Atualização, ainda na mesma sessão:** o repositório foi tornado público pelo operador por conveniência operacional (permitir `git pull` direto no CloudShell sem configurar credencial Git lá), depois da deploy key já estar implementada, e revertido para privado ainda na mesma sessão, com a intenção do projeto esclarecida: o repositório se torna público **deliberadamente ao final do projeto** (divulgação em portfólio/LinkedIn), não incidentalmente durante o desenvolvimento. A deploy key SSH segue funcionando normalmente em ambos os casos (não depende da visibilidade do repositório).
 - **Self-management do ArgoCD (app-in-app) já nesta fase:** descartada — ver decisão 7.
@@ -81,7 +81,7 @@ Também descoberto em teste real: como o `cloudlab-operator` passou a ser quem c
 - `terraform/envs/lab/argocd.tf` (novo) cria o namespace `argocd`, o `kubernetes_secret_v1` de credencial de repositório, e os dois `helm_release` (`argo-cd`, `argocd-apps`).
 - `terraform/envs/lab/outputs.tf` ganha `argocd_namespace`.
 - `gitops/app/kustomization.yaml` deixa de instruir aplicação manual; `gitops/app/namespace.yaml` e `gitops/app/deployment.yaml` trocam o label `app.kubernetes.io/managed-by` de `kubectl` para `argocd`.
-- `gitops/plataforma/README.md` (novo) — primeiro arquivo do diretório, documentando seu propósito e o que chega na Fase 5.
+- `gitops/platform/README.md` (novo) — primeiro arquivo do diretório, documentando seu propósito e o que chega na Fase 5.
 - A validação funcional pós-apply ganha `terraform/envs/lab/scripts/validate-argocd.sh` e o runbook [`docs/runbooks/validate-argocd-gitops.md`](../runbooks/validate-argocd-gitops.md) — a checagem central prova que um drift manual é revertido pelo `selfHeal` sem qualquer `kubectl apply`.
 - `docs/runbooks/validate-transcoding.md` e o cabeçalho de `terraform/envs/lab/scripts/validate-transcoding.sh` deixam de mencionar `kubectl apply -k` como pré-requisito.
 - `kubectl apply -k gitops/app/` deixa de ser necessário em qualquer fluxo documentado do projeto a partir desta fase — a exceção temporária aberta no ADR 006 (item 7) está encerrada.

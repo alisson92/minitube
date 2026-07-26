@@ -12,7 +12,7 @@ dex:
 notifications:
   enabled: false
 
-# TLS terminates at the ALB (gitops/plataforma/argocd/ingress.yaml uses the
+# TLS terminates at the ALB (gitops/platform/argocd/ingress.yaml uses the
 # persistent ACM cert, Phase 4) and forwards plain HTTP to argocd-server --
 # without this, the server keeps expecting a TLS handshake on that plain
 # HTTP connection and the ALB target group reports unhealthy.

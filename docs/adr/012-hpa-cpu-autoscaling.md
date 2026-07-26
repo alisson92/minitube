@@ -24,7 +24,7 @@ Cluster Autoscaler/Karpenter resolveria falta de capacidade de *node* — não �
 
 ### 2. metrics-server via GitOps (Application multi-source), não `aws_eks_addon`
 
-HPA por CPU depende da API `metrics.k8s.io`, que o cluster não tinha (confirmado: nenhum `aws_eks_addon`, nenhuma Application ArgoCD, zero menções no repositório antes desta sessão). Instalado como mais um subdiretório `gitops/plataforma/metrics-server/` + Application multi-source, a mesma forma já usada para `aws-load-balancer-controller`/`external-dns`/`cert-manager` (Fase 4) e `ebs-csi-driver` (Fase 5) — este último já havia registrado a mesma justificativa (ADR 011, decisão 3): manter um único mecanismo de instalação de add-on de plataforma no repositório, em vez de dois mecanismos concorrentes (`aws_eks_addon` da AWS vs. GitOps).
+HPA por CPU depende da API `metrics.k8s.io`, que o cluster não tinha (confirmado: nenhum `aws_eks_addon`, nenhuma Application ArgoCD, zero menções no repositório antes desta sessão). Instalado como mais um subdiretório `gitops/platform/metrics-server/` + Application multi-source, a mesma forma já usada para `aws-load-balancer-controller`/`external-dns`/`cert-manager` (Fase 4) e `ebs-csi-driver` (Fase 5) — este último já havia registrado a mesma justificativa (ADR 011, decisão 3): manter um único mecanismo de instalação de add-on de plataforma no repositório, em vez de dois mecanismos concorrentes (`aws_eks_addon` da AWS vs. GitOps).
 
 Sem IRSA role, sem PVC, sem `finalizers` — metrics-server só faz *scraping* local dos `kubelet`s dos próprios nodes, nenhuma chamada à API da AWS. Mesma forma mínima já usada por `promtail` (Fase 5).
 

@@ -16,8 +16,8 @@ CloudFront na frente do S3 (segmentos HLS); Route 53 + `external-dns` + `cert-ma
 | Parâmetro SSM da deploy key do ArgoCD | `terraform/bootstrap/ssm.tf` | Persistente |
 | CloudFront (S3 default + `/api/*` → ALB) | `terraform/envs/lab/cloudfront.tf` | Efêmero |
 | 3 IRSA roles de plataforma (aws-load-balancer-controller, external-dns, cert-manager) | `terraform/envs/lab/iam-platform.tf` | Efêmero |
-| Add-ons via ArgoCD Application multi-source | `gitops/plataforma/{aws-load-balancer-controller,external-dns,cert-manager}/` | Efêmero |
-| Ingress compartilhado (`IngressGroup`) para `app` e `argocd.<domínio>` | `gitops/app/ingress.yaml`, `gitops/plataforma/argocd/ingress.yaml` | Efêmero |
+| Add-ons via ArgoCD Application multi-source | `gitops/platform/{aws-load-balancer-controller,external-dns,cert-manager}/` | Efêmero |
+| Ingress compartilhado (`IngressGroup`) para `app` e `argocd.<domínio>` | `gitops/app/ingress.yaml`, `gitops/platform/argocd/ingress.yaml` | Efêmero |
 | Grant IAM `ManagePlatformIrsaRoles` | `terraform/bootstrap-iam/main.tf` | Persistente |
 
 ## Decisões de arquitetura (ADRs)

@@ -214,7 +214,7 @@ resource "helm_release" "argocd_project" {
             server    = "https://kubernetes.default.svc"
           },
           {
-            # gitops/plataforma/argocd/ingress.yaml (the argocd-server
+            # gitops/platform/argocd/ingress.yaml (the argocd-server
             # Ingress, Phase 4) targets the argocd namespace itself, not
             # minitube-platform.
             namespace = local.argocd_namespace
@@ -372,13 +372,13 @@ resource "helm_release" "argocd_apps" {
         namespace = local.argocd_namespace
         project   = "minitube-platform"
         # Same rationale as applications.app above -- this Application owns
-        # gitops/plataforma/argocd/ingress.yaml, the other Ingress sharing
+        # gitops/platform/argocd/ingress.yaml, the other Ingress sharing
         # the ALB.
         finalizers = ["resources-finalizer.argocd.argoproj.io"]
         source = {
           repoURL        = local.gitops_repo_url
           targetRevision = local.gitops_revision
-          path           = "gitops/plataforma"
+          path           = "gitops/platform"
           directory = {
             recurse = true
             # The 3 add-ons' values.yaml files (Phase 4) are Helm value
@@ -420,7 +420,7 @@ resource "helm_release" "argocd_apps" {
             chart          = "aws-load-balancer-controller"
             targetRevision = var.aws_load_balancer_controller_chart_version
             helm = {
-              valueFiles = ["$values/gitops/plataforma/aws-load-balancer-controller/values.yaml"]
+              valueFiles = ["$values/gitops/platform/aws-load-balancer-controller/values.yaml"]
               parameters = [
                 {
                   name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
@@ -433,7 +433,7 @@ resource "helm_release" "argocd_apps" {
                   # nodes -- discovered on the first real sync. The VPC ID
                   # changes every session (envs/lab is recreated from
                   # scratch), so it's injected here rather than hardcoded in
-                  # gitops/plataforma/aws-load-balancer-controller/values.yaml.
+                  # gitops/platform/aws-load-balancer-controller/values.yaml.
                   name  = "vpcId"
                   value = aws_vpc.lab.id
                 },
@@ -468,7 +468,7 @@ resource "helm_release" "argocd_apps" {
             chart          = "external-dns"
             targetRevision = var.external_dns_chart_version
             helm = {
-              valueFiles = ["$values/gitops/plataforma/external-dns/values.yaml"]
+              valueFiles = ["$values/gitops/platform/external-dns/values.yaml"]
               parameters = [
                 {
                   name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
@@ -505,7 +505,7 @@ resource "helm_release" "argocd_apps" {
             chart          = "cert-manager"
             targetRevision = var.cert_manager_chart_version
             helm = {
-              valueFiles = ["$values/gitops/plataforma/cert-manager/values.yaml"]
+              valueFiles = ["$values/gitops/platform/cert-manager/values.yaml"]
               parameters = [
                 {
                   name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
@@ -561,7 +561,7 @@ resource "helm_release" "argocd_apps" {
             chart          = "aws-ebs-csi-driver"
             targetRevision = var.ebs_csi_driver_chart_version
             helm = {
-              valueFiles = ["$values/gitops/plataforma/ebs-csi-driver/values.yaml"]
+              valueFiles = ["$values/gitops/platform/ebs-csi-driver/values.yaml"]
               parameters = [
                 {
                   name  = "controller.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
@@ -602,7 +602,7 @@ resource "helm_release" "argocd_apps" {
             chart          = "kube-prometheus-stack"
             targetRevision = var.kube_prometheus_stack_chart_version
             helm = {
-              valueFiles = ["$values/gitops/plataforma/kube-prometheus-stack/values.yaml"]
+              valueFiles = ["$values/gitops/platform/kube-prometheus-stack/values.yaml"]
               parameters = [
                 {
                   name  = "grafana.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
@@ -668,7 +668,7 @@ resource "helm_release" "argocd_apps" {
             chart          = "loki"
             targetRevision = var.loki_chart_version
             helm = {
-              valueFiles = ["$values/gitops/plataforma/loki/values.yaml"]
+              valueFiles = ["$values/gitops/platform/loki/values.yaml"]
             }
           },
         ]
@@ -710,7 +710,7 @@ resource "helm_release" "argocd_apps" {
             chart          = "promtail"
             targetRevision = var.promtail_chart_version
             helm = {
-              valueFiles = ["$values/gitops/plataforma/promtail/values.yaml"]
+              valueFiles = ["$values/gitops/platform/promtail/values.yaml"]
             }
           },
         ]
@@ -745,7 +745,7 @@ resource "helm_release" "argocd_apps" {
             chart          = "metrics-server"
             targetRevision = var.metrics_server_chart_version
             helm = {
-              valueFiles = ["$values/gitops/plataforma/metrics-server/values.yaml"]
+              valueFiles = ["$values/gitops/platform/metrics-server/values.yaml"]
             }
           },
         ]

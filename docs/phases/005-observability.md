@@ -13,13 +13,13 @@ Instalar `kube-prometheus-stack` e Loki via GitOps, com SLOs de latência e disp
 | Entregável | Onde vive | Persistente ou efêmero |
 | --- | --- | --- |
 | Node sizing `3/3/3` (sem Cluster Autoscaler) | `terraform/envs/lab/variables.tf` | Efêmero |
-| EBS CSI driver (provisionador de volume dinâmico, antes inexistente) | `gitops/plataforma/ebs-csi-driver/` | Efêmero |
-| kube-prometheus-stack (Prometheus, Alertmanager, Grafana) | `gitops/plataforma/kube-prometheus-stack/` | Efêmero |
-| Loki + Promtail (single-binary, storage filesystem via PVC) | `gitops/plataforma/{loki,promtail}/` | Efêmero |
+| EBS CSI driver (provisionador de volume dinâmico, antes inexistente) | `gitops/platform/ebs-csi-driver/` | Efêmero |
+| kube-prometheus-stack (Prometheus, Alertmanager, Grafana) | `gitops/platform/kube-prometheus-stack/` | Efêmero |
+| Loki + Promtail (single-binary, storage filesystem via PVC) | `gitops/platform/{loki,promtail}/` | Efêmero |
 | 2 novas IRSA roles (`ebs-csi-driver`, `grafana` — esta com leitura de CloudWatch) | `terraform/envs/lab/iam-platform.tf` | Efêmero |
 | Instrumentação `/metrics` na API (`prometheus-fastapi-instrumentator`) | `app/api/main.py`, imagem `v0.1.3` | — |
-| `PrometheusRule` com os 2 SLOs mínimos viáveis (disponibilidade + latência) | `gitops/plataforma/kube-prometheus-stack/slo-rules.yaml` | Efêmero |
-| Grafana exposto via Ingress (`grafana.<domínio>`) | `gitops/plataforma/kube-prometheus-stack/values.yaml` + Ingress | Efêmero |
+| `PrometheusRule` com os 2 SLOs mínimos viáveis (disponibilidade + latência) | `gitops/platform/kube-prometheus-stack/slo-rules.yaml` | Efêmero |
+| Grafana exposto via Ingress (`grafana.<domínio>`) | `gitops/platform/kube-prometheus-stack/values.yaml` + Ingress | Efêmero |
 | Novo `Sid AttachEbsCsiManagedPolicy` no permission set do operador | `terraform/bootstrap-iam/main.tf` | Persistente |
 
 ## Decisões de arquitetura (ADRs)

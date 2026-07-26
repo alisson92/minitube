@@ -11,10 +11,10 @@ locals {
     external_dns                 = "external-dns"
     cert_manager                 = "cert-manager"
     # Chart's own default SA name, not overridden in
-    # gitops/plataforma/ebs-csi-driver/values.yaml.
+    # gitops/platform/ebs-csi-driver/values.yaml.
     ebs_csi_driver = "ebs-csi-controller-sa"
     # Overridden explicitly via grafana.serviceAccount.name in
-    # gitops/plataforma/kube-prometheus-stack/values.yaml, instead of relying
+    # gitops/platform/kube-prometheus-stack/values.yaml, instead of relying
     # on the chart's release-name-derived default -- keeps this trust policy
     # stable regardless of what the Application/release is named.
     grafana = "grafana"
@@ -180,7 +180,7 @@ resource "aws_iam_role" "grafana" {
 }
 
 # Read-only access for the CloudWatch datasource
-# (gitops/plataforma/kube-prometheus-stack/values.yaml) -- CDN hit ratio
+# (gitops/platform/kube-prometheus-stack/values.yaml) -- CDN hit ratio
 # (CloudFront) and ALB error rate live in CloudWatch, not Prometheus. No
 # CloudWatchReadOnlyAccess managed policy here (too broad, e.g. includes
 # Logs/X-Ray/Synthetics) -- scoped to exactly what the Grafana CloudWatch

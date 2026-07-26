@@ -57,7 +57,7 @@ AWS_PROFILE=cloudlab terraform output -raw grafana_admin_password; echo
 - **Checagens executadas:**
   1. Todas as PVCs em `minitube-platform` atingem `Bound` (até 300s) — a prova de que o EBS CSI driver (novo nesta fase) provisionou volumes EBS reais, não só que a `StorageClass` existe como objeto.
   2. Prometheus (via port-forward) reporta zero alvos de scrape `down` — pega tanto uma configuração quebrada quanto um `kubeScheduler`/`kubeControllerManager`/`kubeEtcd: true` esquecido (inválido em EKS, control plane gerenciado pela AWS).
-  3. `up{job="api"} == 1` no Prometheus — prova de que a instrumentação `/metrics` da API (`app/api/main.py`) e o `ServiceMonitor` dedicado (`gitops/plataforma/kube-prometheus-stack/servicemonitor-api.yaml`) funcionam de ponta a ponta.
+  3. `up{job="api"} == 1` no Prometheus — prova de que a instrumentação `/metrics` da API (`app/api/main.py`) e o `ServiceMonitor` dedicado (`gitops/platform/kube-prometheus-stack/servicemonitor-api.yaml`) funcionam de ponta a ponta.
   4. Grafana responde `200` em `https://grafana.<domínio>/login` — Ingress, DNS (external-dns) e TLS (certificado ACM wildcard) funcionando juntos.
   5. **Checagem central — ingestão real de logs:** o script gera tráfego real contra `/api/healthz`, depois faz *poll* no Loki (via port-forward, sem passar pelo Grafana) até uma consulta LogQL por `{namespace="minitube-app"}` retornar linhas — a prova de que o promtail está de fato lendo e enviando os logs dos containers, não só que o pod do Loki está `Running`.
 - **Cleanup garantido:** `trap cleanup EXIT` mata todos os `port-forward`s abertos (Prometheus, Grafana não usa port-forward — vai direto via Ingress —, Loki, API); nada aqui gera drift no cluster, nenhuma reversão é necessária.

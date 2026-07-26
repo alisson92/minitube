@@ -32,7 +32,7 @@ terraform apply
 
 ### 2. Manifests/values de `gitops/` já commitados
 
-O ArgoCD precisa achar `gitops/plataforma/{aws-load-balancer-controller,external-dns,cert-manager}/values.yaml`, `cert-manager/cluster-issuer.yaml`, `argocd/ingress.yaml` e `gitops/app/ingress.yaml` já na branch que `var.argocd_gitops_revision` apontar. Para testar antes do merge (mesmo padrão do ADR 007, decisão 5):
+O ArgoCD precisa achar `gitops/platform/{aws-load-balancer-controller,external-dns,cert-manager}/values.yaml`, `cert-manager/cluster-issuer.yaml`, `argocd/ingress.yaml` e `gitops/app/ingress.yaml` já na branch que `var.argocd_gitops_revision` apontar. Para testar antes do merge (mesmo padrão do ADR 007, decisão 5):
 
 ```bash
 AWS_PROFILE=cloudlab terraform apply -var argocd_gitops_revision=feat/cloudfront-dns-tls

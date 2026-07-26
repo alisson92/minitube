@@ -1,4 +1,4 @@
-# gitops/plataforma
+# gitops/platform
 
 Este diretório é sincronizado continuamente pelo ArgoCD através da Application
 raiz `platform` (declarada em `terraform/envs/lab/argocd.tf`, chart

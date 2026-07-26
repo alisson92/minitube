@@ -12,7 +12,7 @@ spec:
     app.kubernetes.io/name: api
   ports:
     # Named -- the Prometheus ServiceMonitor
-    # (gitops/plataforma/kube-prometheus-stack/servicemonitor-api.yaml)
+    # (gitops/platform/kube-prometheus-stack/servicemonitor-api.yaml)
     # references this port by name, not number.
     - name: http
       port: 80
