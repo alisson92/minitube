@@ -1,35 +1,21 @@
 import http from "k6/http";
 import { check } from "k6";
 
-// Phase 6 breakpoint test -- k6's own documented test type for exactly this
-// goal ("breakpoint testing": ramp load until the system actually breaks,
-// then stop). Complements load/k6/baseline.js, which is a fixed, small/
-// growing load already validated to hold (0% errors, p95 well under the
-// SLO -- see docs/runbooks/load/run-k6-baseline.md). This script does NOT try
-// to hold any SLO -- its thresholds exist only to detect breakage and
-// auto-abort (abortOnFail), instead of running a fixed duration blindly
-// against an already-crashed target. Its own PEAK_RATE=800 result is what
-// the current SLO's critical threshold (800ms, slo-rules.yaml) is based on
-// -- see docs/runbooks/load/run-k6-breakpoint.md.
+// k6's documented "breakpoint testing" pattern: ramp load until the system
+// actually breaks, then stop (abortOnFail thresholds), unlike
+// baseline.js's fixed small/growing load already validated to hold. Its
+// own PEAK_RATE=800 result is what the SLO's critical threshold (800ms,
+// slo-rules.yaml) is based on -- see docs/runbooks/load/run-k6-breakpoint.md.
 //
-// Targets the API path on purpose (/api/healthz, /api/videos/{id} via the
-// ALB -> the single Deployment replica with no HPA, see gitops/app/deployment.yaml)
-// since that's the piece of the architecture without any scaling mitigation
-// yet -- CloudFront/S3 (the "viewers" traffic) is kept as a small constant
-// background load, not the target of this test.
-//
-// Open model (ramping-arrival-rate), not closed model (ramping-vus): a
-// closed model self-throttles once responses slow down (VUs just queue up
-// waiting for a response before making the next request), which can hide
-// the real breaking point. An open model keeps firing requests at the
-// target rate regardless of response time, so queueing/errors actually
-// surface in the metrics -- this is what k6's own breakpoint-testing guide
-// recommends.
+// Targets the API path (no HPA mitigation on this Deployment yet at the
+// time this was written -- see gitops/app/deployment.yaml); CloudFront/S3
+// stays a small constant background load, not this test's target. Open
+// model (ramping-arrival-rate), not closed (ramping-vus): a closed model
+// self-throttles as responses slow down, hiding the real breaking point.
 //
 // Usage: PEAK_RATE=<req/s, default 400> load/run-breakpoint.sh
-// If the run completes cleanly (no abort), the system held past PEAK_RATE --
-// rerun with a higher PEAK_RATE to keep escalating. See
-// docs/runbooks/load/run-k6-breakpoint.md.
+// A clean run (no abort) means the system held past PEAK_RATE -- rerun
+// with a higher PEAK_RATE to keep escalating.
 
 const BASE_URL = __ENV.BASE_URL;
 const VIDEO_ID = __ENV.VIDEO_ID;

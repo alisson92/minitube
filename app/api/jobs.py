@@ -63,20 +63,15 @@ def create_transcode_job(video_id: str, raw_key: str, hls_prefix: str) -> str:
 def get_job_status(video_id: str) -> str:
     name = _job_name(video_id)
     try:
-        # read_namespaced_job, not read_namespaced_job_status: the latter
-        # hits the /status subresource, which needs a separate RBAC grant
-        # ("jobs/status", not just "jobs") that gitops/app/role.yaml doesn't
-        # have. read_namespaced_job returns the same .status field and only
-        # needs "get" on jobs, which the Role already covers.
+        # Not read_namespaced_job_status: that hits /status, needing a
+        # separate RBAC grant gitops/app/role.yaml doesn't have. This
+        # returns the same .status field under the plain "get" verb.
         job = _batch.read_namespaced_job(name=name, namespace=settings.job_namespace)
     except client.ApiException as exc:
         if exc.status == 404:
-            # The Job is transient by design (ttl_seconds_after_finished
-            # above) and gets garbage-collected by Kubernetes ~1h after
-            # finishing -- its absence doesn't mean the video doesn't exist.
-            # The HLS playlist in S3 is the durable source of truth for
-            # "transcoding succeeded" (it outlives the Job that produced
-            # it), so fall back to it before declaring the video not found.
+            # The Job is garbage-collected ~1h after finishing
+            # (ttl_seconds_after_finished); its absence doesn't mean the
+            # video doesn't exist -- the HLS playlist in S3 outlives it.
             if s3_client.hls_playlist_exists(video_id):
                 return "succeeded"
             return "not_found"
