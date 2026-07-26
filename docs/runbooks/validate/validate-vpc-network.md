@@ -1,6 +1,6 @@
 # Runbook — Validação funcional da rede da VPC (lab)
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../engineering-standards.md#11-validação-funcional-pós-apply).
+> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply).
 
 ## Por que isso existe
 
@@ -21,7 +21,7 @@ Este runbook documenta o script `terraform/envs/lab/scripts/validate-network.sh`
 
 ## Pré-requisito: role de smoke test
 
-O script precisa de uma instance profile (`minitube-network-smoke-test`) para a EC2 assumir a role de SSM. O `cloudlab-operator` (`PowerUserAccess`) **não pode criar recursos IAM** — só ler e `PassRole`. Por isso essa role vive em `terraform/bootstrap-iam/` (módulo admin-only) e precisa ser aplicada uma vez via CloudShell/root, seguindo o mesmo fluxo de [`docs/runbooks/aws-account-bootstrap.md`](aws-account-bootstrap.md).
+O script precisa de uma instance profile (`minitube-network-smoke-test`) para a EC2 assumir a role de SSM. O `cloudlab-operator` (`PowerUserAccess`) **não pode criar recursos IAM** — só ler e `PassRole`. Por isso essa role vive em `terraform/bootstrap-iam/` (módulo admin-only) e precisa ser aplicada uma vez via CloudShell/root, seguindo o mesmo fluxo de [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](../bootstrap/aws-account-bootstrap.md).
 
 ```bash
 # Sessão root/CloudShell, uma única vez (a role persiste entre sessões, sem custo)

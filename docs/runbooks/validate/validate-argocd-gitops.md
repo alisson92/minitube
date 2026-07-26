@@ -1,6 +1,6 @@
 # Runbook — Validação funcional do ArgoCD e do fluxo GitOps
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/007-argocd-gitops-bootstrap.md`](../adr/007-argocd-gitops-bootstrap.md).
+> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/007-argocd-gitops-bootstrap.md`](../../adr/007-argocd-gitops-bootstrap.md).
 
 ## Por que isso existe
 
@@ -39,7 +39,7 @@ rm -f /tmp/argocd-minitube-deploy-key /tmp/argocd-minitube-deploy-key.pub
 
 ### 2. VPC + EKS + bucket S3 + IRSA + acesso ao cluster (mesmo pré-requisito das fases anteriores)
 
-Ver [`docs/runbooks/validate-eks-cluster.md`](./validate-eks-cluster.md) e [`docs/runbooks/validate-transcoding.md`](./validate-transcoding.md) — nada muda aqui, o ArgoCD só é adicionado ao mesmo `terraform apply` de `envs/lab`.
+Ver [`docs/runbooks/validate/validate-eks-cluster.md`](./validate-eks-cluster.md) e [`docs/runbooks/validate/validate-transcoding.md`](./validate-transcoding.md) — nada muda aqui, o ArgoCD só é adicionado ao mesmo `terraform apply` de `envs/lab`.
 
 ## Aplicar o ArgoCD e rodar o teste
 
@@ -64,7 +64,7 @@ AWS_PROFILE=cloudlab terraform plan     # deve mostrar só o restante: S3, IRSA,
 AWS_PROFILE=cloudlab terraform apply
 ```
 
-> `-target=module.eks` sobe o cluster, o node group e o OIDC provider (todos dentro de `terraform/modules/eks/`, ver [ADR 013](../adr/013-terraform-vpc-eks-modules.md)) numa única etapa — targeting um módulo inteiro aplica todos os recursos dentro dele.
+> `-target=module.eks` sobe o cluster, o node group e o OIDC provider (todos dentro de `terraform/modules/eks/`, ver [ADR 013](../../adr/013-terraform-vpc-eks-modules.md)) numa única etapa — targeting um módulo inteiro aplica todos os recursos dentro dele.
 
 ## Como acessar a UI do ArgoCD
 

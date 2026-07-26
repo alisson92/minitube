@@ -12,7 +12,7 @@
 # Requires: terraform apply already ran (node sizing, the 2 new IRSA roles,
 # and the 4 new Applications come from terraform/envs/lab/argocd.tf,
 # iam-platform.tf and variables.tf) and ArgoCD has finished syncing the
-# add-ons -- see docs/runbooks/validate-observability.md.
+# add-ons -- see docs/runbooks/validate/validate-observability.md.
 
 set -euo pipefail
 

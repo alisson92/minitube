@@ -39,7 +39,7 @@ Nenhum destes apareceu em `helm template`/`terraform validate` — só ao sincro
 
 ## Como validamos
 
-[`docs/runbooks/validate-observability.md`](../runbooks/validate-observability.md) + `scripts/validate-observability.sh`: PVCs `Bound` via o EBS CSI driver, Prometheus sem targets down e scrapeando a própria API, Grafana acessível com login funcional, Loki com logs reais do `promtail`. Dashboard conferido visualmente pelo operador — os 4 sinais do critério de conclusão da fase (hit ratio do CDN, latência p95/p99, saturação, erros). Ciclo completo `apply`→`validate`→`destroy` confirmado limpo via `aws ec2 describe-volumes` — o risco teórico de volume EBS órfão (mesma classe de bug do ADR 010) **não se confirmou**.
+[`docs/runbooks/validate/validate-observability.md`](../runbooks/validate/validate-observability.md) + `scripts/validate-observability.sh`: PVCs `Bound` via o EBS CSI driver, Prometheus sem targets down e scrapeando a própria API, Grafana acessível com login funcional, Loki com logs reais do `promtail`. Dashboard conferido visualmente pelo operador — os 4 sinais do critério de conclusão da fase (hit ratio do CDN, latência p95/p99, saturação, erros). Ciclo completo `apply`→`validate`→`destroy` confirmado limpo via `aws ec2 describe-volumes` — o risco teórico de volume EBS órfão (mesma classe de bug do ADR 010) **não se confirmou**.
 
 ## Lições aprendidas
 

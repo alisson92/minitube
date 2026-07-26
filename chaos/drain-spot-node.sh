@@ -13,7 +13,7 @@
 # still marked unschedulable.
 #
 # Usage: AWS_PROFILE=cloudlab ./chaos/drain-spot-node.sh
-# See docs/runbooks/chaos-drain-spot-node.md for what to expect and how to
+# See docs/runbooks/chaos/chaos-drain-spot-node.md for what to expect and how to
 # read the result.
 
 set -euo pipefail
@@ -102,7 +102,7 @@ if kubectl --kubeconfig "$kubeconfig" -n minitube-app rollout status deployment/
   echo "PASS: api Deployment is Ready -- rescheduled off $target_node onto the remaining nodes within ${RESCHEDULE_TIMEOUT_SECONDS}s."
   result=0
 else
-  echo "FAIL: api Deployment did not reach Ready within ${RESCHEDULE_TIMEOUT_SECONDS}s -- see docs/runbooks/chaos-drain-spot-node.md for what to check next." >&2
+  echo "FAIL: api Deployment did not reach Ready within ${RESCHEDULE_TIMEOUT_SECONDS}s -- see docs/runbooks/chaos/chaos-drain-spot-node.md for what to check next." >&2
   result=1
 fi
 

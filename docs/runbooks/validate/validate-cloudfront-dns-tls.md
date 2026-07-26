@@ -1,6 +1,6 @@
 # Runbook — Validação funcional de CloudFront, DNS/TLS e add-ons de plataforma
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/008-cloudfront-dns-tls.md`](../adr/008-cloudfront-dns-tls.md).
+> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/008-cloudfront-dns-tls.md`](../../adr/008-cloudfront-dns-tls.md).
 
 ## Por que isso existe
 
@@ -40,7 +40,7 @@ AWS_PROFILE=cloudlab terraform apply -var argocd_gitops_revision=feat/cloudfront
 
 ### 3. VPC + EKS + S3 + IRSA da app + ArgoCD (pré-requisitos das fases anteriores)
 
-Ver [`docs/runbooks/validate-argocd-gitops.md`](./validate-argocd-gitops.md) e [`docs/runbooks/validate-transcoding.md`](./validate-transcoding.md).
+Ver [`docs/runbooks/validate/validate-argocd-gitops.md`](./validate-argocd-gitops.md) e [`docs/runbooks/validate/validate-transcoding.md`](./validate-transcoding.md).
 
 ## Aplicar e rodar o teste
 

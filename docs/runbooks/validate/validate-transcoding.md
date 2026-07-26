@@ -1,6 +1,6 @@
 # Runbook — Validação funcional da transcodificação (API + transcoder)
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/006-app-irsa-and-job-orchestration.md`](../adr/006-app-irsa-and-job-orchestration.md).
+> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/006-app-irsa-and-job-orchestration.md`](../../adr/006-app-irsa-and-job-orchestration.md).
 
 ## Por que isso existe
 
@@ -12,7 +12,7 @@ Este runbook documenta `terraform/envs/lab/scripts/validate-transcoding.sh`, que
 
 ### 1. Grant de IAM ao operador (uma única vez, via CloudShell)
 
-A IRSA role da app precisa que o operador diário ganhe permissão para gerenciar roles com prefixo `minitube-app-*`, e também para ler/gerenciar o OIDC provider do cluster (`aws_iam_openid_connect_provider.this`, dentro de `terraform/modules/eks/` desde o ADR 013 — existente desde a Fase 1, mas nunca antes planejado pelo profile do operador) — ver decisão em [ADR 006](../adr/006-app-irsa-and-job-orchestration.md). Sem isso, `terraform plan`/`apply` em `envs/lab` falha: ao tentar criar `aws_iam_role.app` (primeira execução) ou, em qualquer execução seguinte, ao fazer o *refresh* do OIDC provider já existente no state (`AccessDenied` em `iam:GetOpenIDConnectProvider`).
+A IRSA role da app precisa que o operador diário ganhe permissão para gerenciar roles com prefixo `minitube-app-*`, e também para ler/gerenciar o OIDC provider do cluster (`aws_iam_openid_connect_provider.this`, dentro de `terraform/modules/eks/` desde o ADR 013 — existente desde a Fase 1, mas nunca antes planejado pelo profile do operador) — ver decisão em [ADR 006](../../adr/006-app-irsa-and-job-orchestration.md). Sem isso, `terraform plan`/`apply` em `envs/lab` falha: ao tentar criar `aws_iam_role.app` (primeira execução) ou, em qualquer execução seguinte, ao fazer o *refresh* do OIDC provider já existente no state (`AccessDenied` em `iam:GetOpenIDConnectProvider`).
 
 ```bash
 # Sessão root/CloudShell, uma única vez
@@ -51,7 +51,7 @@ AWS_PROFILE=cloudlab terraform plan     # revisar: VPC+EKS (se recriando) + buck
 AWS_PROFILE=cloudlab terraform apply
 ```
 
-Inclui `aws_eks_access_entry`/`aws_eks_access_policy_association` (cluster-admin para `var.operator_role_arn`) — sem isso, `kubectl` falha na autenticação mesmo com IAM correto, se o cluster tiver sido criado por uma identidade diferente da que está rodando `kubectl` agora (ver [ADR 006](../adr/006-app-irsa-and-job-orchestration.md), item 6).
+Inclui `aws_eks_access_entry`/`aws_eks_access_policy_association` (cluster-admin para `var.operator_role_arn`) — sem isso, `kubectl` falha na autenticação mesmo com IAM correto, se o cluster tiver sido criado por uma identidade diferente da que está rodando `kubectl` agora (ver [ADR 006](../../adr/006-app-irsa-and-job-orchestration.md), item 6).
 
 ⚠️ Se o permission set `cloudlab-operator` for recriado (evento raro), `var.operator_role_arn` em `terraform/envs/lab/variables.tf` precisa ser atualizado — obtenha o novo ARN via `aws iam get-role --role-name AWSReservedSSO_cloudlab-operator_<hash> --query Role.Arn --output text` (CloudShell/root, só leitura).
 
@@ -63,7 +63,7 @@ A partir da Fase 3, `gitops/app/` não é mais aplicado manualmente — o ArgoCD
 AWS_PROFILE=cloudlab ./scripts/validate-argocd.sh
 ```
 
-Ver [`docs/runbooks/validate-argocd-gitops.md`](./validate-argocd-gitops.md) e [ADR 007](../adr/007-argocd-gitops-bootstrap.md). Nenhum `kubectl apply -k gitops/app/` deve ser rodado a partir desta fase.
+Ver [`docs/runbooks/validate/validate-argocd-gitops.md`](./validate-argocd-gitops.md) e [ADR 007](../../adr/007-argocd-gitops-bootstrap.md). Nenhum `kubectl apply -k gitops/app/` deve ser rodado a partir desta fase.
 
 ## Executar o teste
 

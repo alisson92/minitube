@@ -5,12 +5,12 @@ import { check } from "k6";
 // goal ("breakpoint testing": ramp load until the system actually breaks,
 // then stop). Complements load/k6/baseline.js, which is a fixed, small/
 // growing load already validated to hold (0% errors, p95 well under the
-// SLO -- see docs/runbooks/run-k6-baseline.md). This script does NOT try
+// SLO -- see docs/runbooks/load/run-k6-baseline.md). This script does NOT try
 // to hold any SLO -- its thresholds exist only to detect breakage and
 // auto-abort (abortOnFail), instead of running a fixed duration blindly
 // against an already-crashed target. Its own PEAK_RATE=800 result is what
 // the current SLO's critical threshold (800ms, slo-rules.yaml) is based on
-// -- see docs/runbooks/run-k6-breakpoint.md.
+// -- see docs/runbooks/load/run-k6-breakpoint.md.
 //
 // Targets the API path on purpose (/api/healthz, /api/videos/{id} via the
 // ALB -> the single Deployment replica with no HPA, see gitops/app/deployment.yaml)
@@ -29,7 +29,7 @@ import { check } from "k6";
 // Usage: PEAK_RATE=<req/s, default 400> load/run-breakpoint.sh
 // If the run completes cleanly (no abort), the system held past PEAK_RATE --
 // rerun with a higher PEAK_RATE to keep escalating. See
-// docs/runbooks/run-k6-breakpoint.md.
+// docs/runbooks/load/run-k6-breakpoint.md.
 
 const BASE_URL = __ENV.BASE_URL;
 const VIDEO_ID = __ENV.VIDEO_ID;

@@ -2,7 +2,7 @@
 
 ## O quê
 
-`load/run-breakpoint.sh` roda `load/k6/breakpoint.js` — um teste de **breakpoint**, categoria oficialmente documentada pelo próprio k6 (distinta de load/soak/spike testing): escalar carga deliberadamente até o sistema quebrar de verdade, em vez de validar que ele aguenta um número fixo. Complementa `load/run-baseline.sh` (carga pequena e fixa, já validada estável — ver `docs/runbooks/run-k6-baseline.md`), sem substituí-lo: o baseline permanece registrado como está, este é um teste novo e separado.
+`load/run-breakpoint.sh` roda `load/k6/breakpoint.js` — um teste de **breakpoint**, categoria oficialmente documentada pelo próprio k6 (distinta de load/soak/spike testing): escalar carga deliberadamente até o sistema quebrar de verdade, em vez de validar que ele aguenta um número fixo. Complementa `load/run-baseline.sh` (carga pequena e fixa, já validada estável — ver `docs/runbooks/load/run-k6-baseline.md`), sem substituí-lo: o baseline permanece registrado como está, este é um teste novo e separado.
 
 O alvo é o caminho da API (`/api/healthz`, `/api/videos/{id}` via ALB → EKS) — a única réplica sem HPA, candidata mais provável a quebrar primeiro (ver o resultado do baseline: `uvicorn` sem `--workers`, limite de `500m` CPU, nunca estressado de verdade). O tráfego de `viewers` (CloudFront/S3) entra só como um fundo constante e pequeno (10 VUs), não como alvo — CDN/S3 não é o que este teste tenta quebrar.
 

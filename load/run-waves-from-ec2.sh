@@ -2,7 +2,7 @@
 # Same test as load/k6/waves.js, but the k6 process itself runs from an
 # ephemeral EC2 instance inside the lab VPC instead of the operator's local
 # machine -- same reasoning as load/run-breakpoint-from-ec2.sh (see
-# docs/runbooks/run-k6-breakpoint.md, section "Investigacao da latencia"):
+# docs/runbooks/load/run-k6-breakpoint.md, section "Investigacao da latencia"):
 # a client running over WSL2/home ISP adds latency noise the server side
 # never sees, which would make a wave's "recovery" stage impossible to read
 # correctly.

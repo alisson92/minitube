@@ -1,6 +1,6 @@
 # Runbook — Bootstrap de conta AWS nova
 
-> Procedimento único por conta AWS. Ver decisão em [`docs/adr/002-aws-account-and-iam-bootstrap.md`](../adr/002-aws-account-and-iam-bootstrap.md) e [`docs/adr/003-cloudlab-operator-sso-migration.md`](../adr/003-cloudlab-operator-sso-migration.md).
+> Procedimento único por conta AWS. Ver decisão em [`docs/adr/002-aws-account-and-iam-bootstrap.md`](../../adr/002-aws-account-and-iam-bootstrap.md) e [`docs/adr/003-cloudlab-operator-sso-migration.md`](../../adr/003-cloudlab-operator-sso-migration.md).
 
 ## Passo 1 — Conta e root (manual, fora de qualquer automação)
 

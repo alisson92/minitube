@@ -5,7 +5,7 @@
 # exited 0. AWS Budgets recalculates actual/forecasted spend on its own
 # schedule (not instantly after apply), so this script validates
 # configuration, not a real alert firing -- see
-# docs/runbooks/validate-budget-alert.md.
+# docs/runbooks/validate/validate-budget-alert.md.
 #
 # Usage: AWS_PROFILE=cloudlab ./scripts/validate-budget.sh
 # Run from terraform/bootstrap-iam/ (the script also cds there automatically).
@@ -90,7 +90,7 @@ if (( overall == 0 )); then
   echo "=== All checks passed: budget alert is configured as expected. ==="
   echo "NOTE: this validates configuration only. AWS Budgets recalculates spend"
   echo "on its own schedule (not instantly), so a real alert firing can only be"
-  echo "confirmed organically over time -- see docs/runbooks/validate-budget-alert.md."
+  echo "confirmed organically over time -- see docs/runbooks/validate/validate-budget-alert.md."
 else
   echo "=== One or more checks FAILED -- see output above. ===" >&2
 fi

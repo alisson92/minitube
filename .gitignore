@@ -51,7 +51,7 @@ __pycache__/
 venv/
 
 # SSH keys (deploy keys, etc.) — generated outside the repo by design
-# (see docs/runbooks/validate-argocd-gitops.md); never committed here.
+# (see docs/runbooks/validate/validate-argocd-gitops.md); never committed here.
 id_ed25519*
 id_rsa*
 *.pem

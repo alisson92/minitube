@@ -10,7 +10,7 @@
 # Requires: terraform apply already ran (CloudFront, the 3 platform IRSA
 # roles, and the add-on Applications come from terraform/envs/lab/argocd.tf
 # and cloudfront.tf) and ArgoCD has finished syncing the add-ons -- see
-# docs/runbooks/validate-cloudfront-dns-tls.md. DNS propagation for a
+# docs/runbooks/validate/validate-cloudfront-dns-tls.md. DNS propagation for a
 # freshly-created record can lag behind Route53 itself by a few minutes on
 # some resolvers -- the polling below accounts for that, it isn't a bug if
 # the early checks take a while.

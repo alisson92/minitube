@@ -62,7 +62,7 @@ Os manifests já vivem em `gitops/app/` (Kustomize), prontos para o ArgoCD assum
 - `terraform/envs/lab/eks.tf` ganha `aws_eks_access_entry.operator` + `aws_eks_access_policy_association.operator_admin` — o acesso `kubectl` ao cluster deixa de depender de quem o criou originalmente.
 - `terraform/envs/lab/` ganha `s3.tf` (bucket de vídeo) e `iam-app.tf` (role + policy IRSA), e destrói os dois junto com o resto a cada `terraform destroy` — nenhuma infraestrutura de app fica de pé fora do ciclo efêmero.
 - `terraform/bootstrap/` ganha `ecr.tf` — os dois repositórios e as imagens neles persistem entre sessões.
-- A validação funcional pós-apply ganha `terraform/envs/lab/scripts/validate-transcoding.sh` e o runbook [`docs/runbooks/validate-transcoding.md`](../runbooks/validate-transcoding.md).
+- A validação funcional pós-apply ganha `terraform/envs/lab/scripts/validate-transcoding.sh` e o runbook [`docs/runbooks/validate/validate-transcoding.md`](../runbooks/validate/validate-transcoding.md).
 - `kubectl apply -k gitops/app/` é uma exceção temporária ao princípio de GitOps (`docs/engineering-standards.md` §5) — deve deixar de ser necessária assim que o ArgoCD for instalado na Fase 3.
 
 > **Atualização (Fase 3):** o `kubectl apply -k gitops/app/` manual deste item deixou de ser necessário — o ArgoCD assume a reconciliação completa de `gitops/app/` a partir desta fase. Decisão registrada em [ADR 007](007-argocd-gitops-bootstrap.md).

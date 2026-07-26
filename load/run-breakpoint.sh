@@ -3,7 +3,7 @@
 # already-transcoded test video, then runs load/k6/breakpoint.js against it,
 # escalating load until it actually breaks (or completes cleanly, meaning
 # the current PEAK_RATE wasn't enough to find the ceiling). See
-# docs/runbooks/run-k6-breakpoint.md for how this differs from
+# docs/runbooks/load/run-k6-breakpoint.md for how this differs from
 # load/run-baseline.sh and how to read/escalate the result.
 #
 # Usage: AWS_PROFILE=cloudlab ./load/run-breakpoint.sh
@@ -12,7 +12,7 @@
 # location, not the caller's cwd.
 # Requires: k6, aws, jq, terraform, kubectl, curl, ffmpeg in PATH; terraform
 # apply already ran in terraform/envs/lab and ArgoCD has synced gitops/app/
-# (see docs/runbooks/validate-transcoding.md).
+# (see docs/runbooks/validate/validate-transcoding.md).
 
 set -euo pipefail
 

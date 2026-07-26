@@ -106,4 +106,4 @@ As 3 Applications de add-ons e a Application `app`/`platform` (declaradas via `h
 - `terraform/envs/lab/values/argocd.yaml`: `configs.params."server.insecure" = true` (TLS termina na ALB).
 - `gitops/platform/{aws-load-balancer-controller,external-dns,cert-manager}/values.yaml`, `cert-manager/cluster-issuer.yaml`, `argocd/ingress.yaml` (novos).
 - `gitops/app/ingress.yaml` (novo) + `kustomization.yaml` atualizado.
-- `terraform/envs/lab/scripts/validate-cloudfront-dns-tls.sh` + `docs/runbooks/validate-cloudfront-dns-tls.md` (novos), seguindo o padrão de validação funcional pós-apply (`docs/engineering-standards.md` §11).
+- `terraform/envs/lab/scripts/validate-cloudfront-dns-tls.sh` + `docs/runbooks/validate/validate-cloudfront-dns-tls.md` (novos), seguindo o padrão de validação funcional pós-apply (`docs/engineering-standards.md` §11).

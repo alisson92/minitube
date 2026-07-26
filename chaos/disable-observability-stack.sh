@@ -11,7 +11,7 @@
 # only covers resources templated directly by Helm. The Prometheus Operator
 # creates the actual Prometheus/Alertmanager StatefulSets dynamically with
 # its own labels, so an include-based query silently missed them (confirmed
-# for real -- see docs/runbooks/chaos-disable-observability-stack.md).
+# for real -- see docs/runbooks/chaos/chaos-disable-observability-stack.md).
 #
 # ArgoCD's selfHeal would otherwise revert `kubectl scale --replicas=0`
 # within seconds, treating it as drift -- same technique already used (and
@@ -21,7 +21,7 @@
 # replica counts and the original syncPolicy on exit, in reverse order.
 #
 # Usage: AWS_PROFILE=cloudlab ./chaos/disable-observability-stack.sh
-# See docs/runbooks/chaos-disable-observability-stack.md for what to expect
+# See docs/runbooks/chaos/chaos-disable-observability-stack.md for what to expect
 # and how to read the result.
 
 set -euo pipefail
@@ -129,7 +129,7 @@ echo "PASS: selfHeal paused."
 # creates them dynamically from the Prometheus/Alertmanager CRs with its own
 # labeling scheme, so an include-by-instance-label query silently misses
 # them -- confirmed for real on 2026-07-26 (see
-# docs/runbooks/chaos-disable-observability-stack.md): the first fixed run
+# docs/runbooks/chaos/chaos-disable-observability-stack.md): the first fixed run
 # scaled grafana/kube-state-metrics/operator/operator-webhook/loki, but
 # Prometheus itself stayed up the whole time. metrics-server is excluded
 # too -- it's a separate Application (Phase 6, ADR 012, for the HPA's own
@@ -214,7 +214,7 @@ if (( $(echo "$error_rate <= $MAX_ERROR_RATE_PERCENT" | bc -l) )); then
   echo "PASS: error rate ${error_rate}% -- the app kept serving traffic with zero observability stack up. Blast radius contained."
   result=0
 else
-  echo "FAIL: error rate ${error_rate}% exceeded ${MAX_ERROR_RATE_PERCENT}% -- the app's availability depends on the observability stack, which shouldn't be true. See docs/runbooks/chaos-disable-observability-stack.md." >&2
+  echo "FAIL: error rate ${error_rate}% exceeded ${MAX_ERROR_RATE_PERCENT}% -- the app's availability depends on the observability stack, which shouldn't be true. See docs/runbooks/chaos/chaos-disable-observability-stack.md." >&2
   result=1
 fi
 

@@ -12,7 +12,7 @@ import { check, sleep } from "k6";
 // load.
 //
 // The "pico do gol" stage deliberately targets a rate at or near the real
-// ceiling found in docs/runbooks/run-k6-breakpoint.md ("Resultado da
+// ceiling found in docs/runbooks/load/run-k6-breakpoint.md ("Resultado da
 // execução via EC2, PEAK_RATE=800"): maxReplicas:6 * limits.cpu:500m = 3
 // aggregate cores, which starts queueing (latency climbing, not errors)
 // once combined demand crosses roughly 700-800 req/s. Crossing that
@@ -26,7 +26,7 @@ import { check, sleep } from "k6";
 // to stop at the first breach like breakpoint.js does.
 //
 // Usage: WAVE_PEAK_RATE=<req/s, default 700> load/run-waves.sh
-// See docs/runbooks/run-k6-waves.md.
+// See docs/runbooks/load/run-k6-waves.md.
 
 const BASE_URL = __ENV.BASE_URL;
 const VIDEO_ID = __ENV.VIDEO_ID;
@@ -73,7 +73,7 @@ export const options = {
         { duration: "3m", target: pct(0.05) }, // intervalo: vale sustentado (testa scale-down do HPA)
         { duration: "3m", target: pct(0.45) }, // 2º tempo: torcida volta, mais gente que o 1º tempo
         { duration: "2m", target: WAVE_PEAK_RATE }, // pico do gol: rampa até o pico deliberado
-        { duration: "2m", target: WAVE_PEAK_RATE }, // pico do gol: sustentado no pico (esperado: latência sobe, sem erros -- ver docs/runbooks/run-k6-breakpoint.md)
+        { duration: "2m", target: WAVE_PEAK_RATE }, // pico do gol: sustentado no pico (esperado: latência sobe, sem erros -- ver docs/runbooks/load/run-k6-breakpoint.md)
         { duration: "2m", target: pct(0.03) }, // apito final: queda para quase zero
         { duration: "2m", target: pct(0.03) }, // apito final: vale final sustentado (confirma recuperação e scale-down)
       ],
@@ -83,7 +83,7 @@ export const options = {
   // (APILatencyCritical, 800ms in slo-rules.yaml) is expected to be
   // breached during the "pico do gol" stage on purpose (that data point is
   // in fact what the threshold is based on -- see
-  // docs/runbooks/run-k6-breakpoint.md). Read the actual numbers from the
+  // docs/runbooks/load/run-k6-breakpoint.md). Read the actual numbers from the
   // k6 summary and Prometheus, don't rely on pass/fail here.
   thresholds: {
     "http_req_failed": ["rate<0.05"],

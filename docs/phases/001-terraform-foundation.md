@@ -35,9 +35,9 @@ Cada uma resolveu um problema concreto encontrado durante a fase, não uma escol
 
 Seguindo o padrão de "validação funcional pós-apply" (`docs/engineering-standards.md`, seção 11) — `describe-*` prova que o recurso existe, não que funciona:
 
-- **Rede:** [`docs/runbooks/validate-vpc-network.md`](../runbooks/validate-vpc-network.md) — instância EC2 efêmera na subnet privada confirma egress real via NAT (SSM-only, sem bastion).
-- **EKS:** [`docs/runbooks/validate-eks-cluster.md`](../runbooks/validate-eks-cluster.md) — kubeconfig efêmero, pod real agendado e executado num node spot, logs conferidos.
-- **Budget alert:** [`docs/runbooks/validate-budget-alert.md`](../runbooks/validate-budget-alert.md) — configuração confirmada via API; documenta a limitação de que a AWS Budgets recalcula gasto no próprio schedule, então o disparo real do alerta não pode ser forçado sob demanda.
+- **Rede:** [`docs/runbooks/validate/validate-vpc-network.md`](../runbooks/validate/validate-vpc-network.md) — instância EC2 efêmera na subnet privada confirma egress real via NAT (SSM-only, sem bastion).
+- **EKS:** [`docs/runbooks/validate/validate-eks-cluster.md`](../runbooks/validate/validate-eks-cluster.md) — kubeconfig efêmero, pod real agendado e executado num node spot, logs conferidos.
+- **Budget alert:** [`docs/runbooks/validate/validate-budget-alert.md`](../runbooks/validate/validate-budget-alert.md) — configuração confirmada via API; documenta a limitação de que a AWS Budgets recalcula gasto no próprio schedule, então o disparo real do alerta não pode ser forçado sob demanda.
 
 ## Lições aprendidas
 

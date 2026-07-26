@@ -1,6 +1,6 @@
 # Runbook — Validação funcional do budget alert
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/005-budget-alert-persistence.md`](../adr/005-budget-alert-persistence.md).
+> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/005-budget-alert-persistence.md`](../../adr/005-budget-alert-persistence.md).
 
 ## Por que isso existe
 
@@ -45,7 +45,7 @@ PASS: notifications subscribe 'alisson.cloudlab@gmail.com'
 === All checks passed: budget alert is configured as expected. ===
 NOTE: this validates configuration only. AWS Budgets recalculates spend
 on its own schedule (not instantly), so a real alert firing can only be
-confirmed organically over time -- see docs/runbooks/validate-budget-alert.md.
+confirmed organically over time -- see docs/runbooks/validate/validate-budget-alert.md.
 ```
 
 Código de saída `0` quando tudo passa, `1` se qualquer checagem falhar.

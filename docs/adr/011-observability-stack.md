@@ -106,5 +106,5 @@ Corrigido gerando a senha uma única vez em estado real do Terraform (`resource 
 - `terraform/envs/lab/argocd.tf`: `sourceRepos` do AppProject +3; 4 novas Applications multi-source (`ebs-csi-driver`, `kube-prometheus-stack`, `loki`, `promtail`); `depends_on` de `helm_release.argocd_apps` estendido às 2 novas policies IAM.
 - `gitops/platform/{ebs-csi-driver,kube-prometheus-stack,loki,promtail}/`: novos, seguindo o padrão de subdiretório por componente já estabelecido na Fase 4.
 - `app/api/main.py`, `app/api/requirements.txt`, `gitops/app/service.yaml`, `gitops/app/deployment.yaml`: instrumentação `/metrics`, porta nomeada, imagem `v0.1.3`.
-- `terraform/envs/lab/scripts/validate-observability.sh`, `docs/runbooks/validate-observability.md`: novos.
+- `terraform/envs/lab/scripts/validate-observability.sh`, `docs/runbooks/validate/validate-observability.md`: novos.
 - Risco da decisão 4 (órfão de volume EBS) fica em aberto até o primeiro ciclo `destroy` real confirmar ou descartar — se confirmado, é candidato a um ADR 012 próprio, no mesmo padrão do ADR 010.

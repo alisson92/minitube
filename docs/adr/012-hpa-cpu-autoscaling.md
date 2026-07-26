@@ -8,7 +8,7 @@ Aceito
 
 O `CLAUDE.md` já previa, na Fase 6, decidir entre HPA e Cluster Autoscaler/Karpenter "guiado por carga real do k6" — deliberadamente adiado da Fase 5 (ADR 011, decisão 1) para não ser engenharia antecipada sem dado.
 
-O dado chegou nesta sessão: o teste de breakpoint (`load/k6/breakpoint.js`), rodado de dentro da própria VPC via `load/run-breakpoint-from-ec2.sh` (ver `docs/runbooks/run-k6-breakpoint.md` para o porquê de precisar rodar de dentro da AWS — testes locais via WSL2/rede residencial abortavam cedo demais por ruído de rede, mascarando qualquer sinal real), encontrou um gargalo genuíno e confirmado por três fontes independentes na mesma janela de tempo (Prometheus + `kube_pod_container_status_restarts_total`):
+O dado chegou nesta sessão: o teste de breakpoint (`load/k6/breakpoint.js`), rodado de dentro da própria VPC via `load/run-breakpoint-from-ec2.sh` (ver `docs/runbooks/load/run-k6-breakpoint.md` para o porquê de precisar rodar de dentro da AWS — testes locais via WSL2/rede residencial abortavam cedo demais por ruído de rede, mascarando qualquer sinal real), encontrou um gargalo genuíno e confirmado por três fontes independentes na mesma janela de tempo (Prometheus + `kube_pod_container_status_restarts_total`):
 
 - **CPU do pod `api` sobe de forma monotônica e satura ~98% do `limits.cpu: 500m`** exatamente no momento em que o teste aborta.
 - **A latência interna da própria API** (`http_request_duration_seconds`, instrumentada via `prometheus-fastapi-instrumentator`, medida dentro do pod — não pelo k6) fica estável em ~95ms de p95 por mais de 6 minutos e só dispara nos últimos ~60 segundos, acompanhando a curva de CPU.
@@ -48,4 +48,4 @@ Toda Application deste projeto roda com `syncPolicy.automated.selfHeal = true`. 
 
 ## Validação
 
-Ver `docs/runbooks/run-k6-breakpoint.md` para o resultado da revalidação com `load/run-breakpoint-from-ec2.sh` após esta implementação — o teste funcional deste entregável é o HPA escalando réplicas sob carga real e o ponto de quebra subindo, não apenas o `apply` limpo e os objetos existindo com os atributos certos (padrão de validação funcional pós-apply, `docs/engineering-standards.md` seção 11).
+Ver `docs/runbooks/load/run-k6-breakpoint.md` para o resultado da revalidação com `load/run-breakpoint-from-ec2.sh` após esta implementação — o teste funcional deste entregável é o HPA escalando réplicas sob carga real e o ponto de quebra subindo, não apenas o `apply` limpo e os objetos existindo com os atributos certos (padrão de validação funcional pós-apply, `docs/engineering-standards.md` seção 11).

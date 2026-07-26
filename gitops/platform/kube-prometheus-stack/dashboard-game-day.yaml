@@ -121,7 +121,7 @@ data:
         {
           "id": 3,
           "title": "Saturação (réplicas do HPA + CPU dos nodes)",
-          "description": "Confirma o padrão de escala das ondas (docs/runbooks/run-k6-waves.md): réplicas subindo e descendo, CPU dos nodes com folga mesmo no pico.",
+          "description": "Confirma o padrão de escala das ondas (docs/runbooks/load/run-k6-waves.md): réplicas subindo e descendo, CPU dos nodes com folga mesmo no pico.",
           "type": "timeseries",
           "datasource": "Prometheus",
           "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },

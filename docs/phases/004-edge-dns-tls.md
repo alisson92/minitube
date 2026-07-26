@@ -44,7 +44,7 @@ Nenhum destes apareceu em `terraform plan`/`validate` — só na sincronização
 
 ## Como validamos
 
-[`docs/runbooks/validate-cloudfront-dns-tls.md`](../runbooks/validate-cloudfront-dns-tls.md) + `scripts/validate-cloudfront-dns-tls.sh`, 9 checagens — a prova central: playlist HLS real servida via `https://app.minitube.projetodevops.com.br`, com header `X-Cache` do CloudFront e cadeia TLS emitida pela Amazon. Revalidado depois do fechamento do ADR 009 com upload real end-to-end (`POST /api/videos`, transcodificação, `GET /hls/<id>/playlist.m3u8` via CDN, vídeo reproduzido no VLC) e, novamente, depois do ADR 010, com 4 ciclos completos `apply`→`destroy` do zero.
+[`docs/runbooks/validate/validate-cloudfront-dns-tls.md`](../runbooks/validate/validate-cloudfront-dns-tls.md) + `scripts/validate-cloudfront-dns-tls.sh`, 9 checagens — a prova central: playlist HLS real servida via `https://app.minitube.projetodevops.com.br`, com header `X-Cache` do CloudFront e cadeia TLS emitida pela Amazon. Revalidado depois do fechamento do ADR 009 com upload real end-to-end (`POST /api/videos`, transcodificação, `GET /hls/<id>/playlist.m3u8` via CDN, vídeo reproduzido no VLC) e, novamente, depois do ADR 010, com 4 ciclos completos `apply`→`destroy` do zero.
 
 ## Lições aprendidas
 
