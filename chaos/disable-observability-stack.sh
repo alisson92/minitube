@@ -131,8 +131,14 @@ echo "PASS: selfHeal paused."
 # them -- confirmed for real on 2026-07-26 (see
 # docs/runbooks/chaos-disable-observability-stack.md): the first fixed run
 # scaled grafana/kube-state-metrics/operator/operator-webhook/loki, but
-# Prometheus itself stayed up the whole time.
-EXCLUDED_WORKLOADS='^(aws-load-balancer-controller|external-dns|cert-manager|cert-manager-cainjector|cert-manager-webhook|ebs-csi-controller)$'
+# Prometheus itself stayed up the whole time. metrics-server is excluded
+# too -- it's a separate Application (Phase 6, ADR 012, for the HPA's own
+# metrics), not part of the observability stack this experiment targets;
+# an earlier version of this exclusion list missed it, swept it up, and its
+# selfHeal (never paused, since it isn't in APPLICATIONS) silently reverted
+# the scale-down within the 90s wait -- harmless here (it was never
+# supposed to be touched), but confusing output and out of scope.
+EXCLUDED_WORKLOADS='^(aws-load-balancer-controller|external-dns|cert-manager|cert-manager-cainjector|cert-manager-webhook|ebs-csi-controller|metrics-server)$'
 echo "Discovering Deployments/StatefulSets in ${PLATFORM_NAMESPACE} that are part of the observability stack (everything except: ${EXCLUDED_WORKLOADS})..."
 mapfile -t scaled_workloads < <(kubectl --kubeconfig "$kubeconfig" -n "$PLATFORM_NAMESPACE" get deploy,statefulset \
   -o jsonpath='{range .items[*]}{.kind}{"/"}{.metadata.name}{"\n"}{end}' \
