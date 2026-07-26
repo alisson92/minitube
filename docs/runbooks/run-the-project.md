@@ -120,7 +120,13 @@ Depois, atualizar a tag em `gitops/app/deployment.yaml`, commitar e deixar o Arg
 
 ### 2.4 — Validar cada subsistema
 
-Rodar em ordem — cada um assume que o anterior já está de pé:
+Tudo de uma vez, na ordem certa, sem parar no primeiro que falhar (resumo `PASS`/`FAIL` de cada um ao final):
+
+```bash
+make validate-all
+```
+
+`make help` lista cada checagem individual (`validate-network`, `validate-eks`, etc.), caso só precise rodar uma. O que cada uma prova e como ler o resultado, em detalhe:
 
 1. [`validate-vpc-network.md`](validate/validate-vpc-network.md) — egress real via NAT.
 2. [`validate-eks-cluster.md`](validate/validate-eks-cluster.md) — control plane, nodes, pod real agendado.
