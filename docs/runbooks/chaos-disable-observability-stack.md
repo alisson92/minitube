@@ -46,4 +46,14 @@ Reexecutado após o fix do `video_id`. Desta vez o script rodou até o fim e rep
 
 **Corrigido:** a descoberta agora exclui por nome os add-ons que não fazem parte do experimento (`aws-load-balancer-controller`, `external-dns`, `cert-manager*`, `ebs-csi-controller`) e escala **tudo o mais** em `minitube-platform` — cobre Prometheus/Alertmanager independente de como o operator os rotula. O "wait" e a checagem de estado pós-scale-down também foram trocados de um seletor de pods (mesmo problema) para polling direto de `.status.replicas` de cada workload descoberto.
 
-**Ainda não revalidado com a descoberta corrigida** — os 18,75% de erro observados nesta execução também não foram investigados a fundo (Prometheus/Alertmanager nunca caíram, então a causa é outra coisa — possivelmente não relacionada ao experimento em si). Próximo passo: rodar de novo (`AWS_PROFILE=cloudlab ./chaos/disable-observability-stack.sh`) com a descoberta corrigida, confirmar que o Prometheus real aparece na lista de workloads escalados, e só então avaliar a taxa de erro reportada.
+## Resultado da execução (2026-07-26, pós-fix #2) — PASS real, com um efeito colateral corrigido
+
+Reexecutado com a descoberta por exclusão. Desta vez `statefulset/prometheus-kube-prometheus-stack-prometheus` e `statefulset/alertmanager-kube-prometheus-stack-alertmanager` apareceram na lista e foram escalados a zero de verdade, junto com Grafana/kube-state-metrics/operator/operator-webhook/Loki.
+
+- **Total de requisições (API + playlist HLS):** 60 (janela de 60s).
+- **Não-200:** 0.
+- **Taxa de erro:** 0%.
+
+`PASS`: com o Prometheus e o Alertmanager realmente fora do ar (confirmado, não presumido), a API e o HLS seguiram servindo 100% do tráfego — blast radius contido, como o experimento se propõe a provar.
+
+**Efeito colateral encontrado e corrigido:** a lista de exclusão original não incluía `metrics-server` (Application separada da Fase 6/ADR 012, usada só pelo HPA — não faz parte da stack de observabilidade). Ele foi varrido pela descoberta por engano, e como o script nunca pausou o `selfHeal` da Application dele (só de `kube-prometheus-stack`/`loki`), o ArgoCD reverteu o `scale --replicas=0` sozinho antes dos 90s de espera (`WARN: deployment/metrics-server still reports 1 replica(s) after 90s`) — inofensivo (ele nunca devia ter sido tocado mesmo, e nunca ficou fora do ar de verdade), mas fora do escopo do experimento. Adicionado à lista de exclusão.
