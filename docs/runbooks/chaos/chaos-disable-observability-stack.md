@@ -1,5 +1,7 @@
 # Chaos: derrubar a stack de observabilidade
 
+> **Resultado final confirmado: `PASS`** — ver a última seção ("pós-fix #2") para o resultado real com Prometheus/Alertmanager genuinamente fora do ar. As duas seções anteriores documentam bugs do próprio script, corrigidos ao longo do caminho, não do experimento em si.
+
 ## O quê
 
 `chaos/disable-observability-stack.sh` pausa temporariamente o `selfHeal` das Applications ArgoCD `kube-prometheus-stack` e `loki` (só essas duas — `aws-load-balancer-controller`, `external-dns`, `cert-manager` e o `ebs-csi-driver` vivem no mesmo namespace `minitube-platform`, mas não são tocados), escala Prometheus/Alertmanager/Grafana/Loki a zero réplicas, e gera tráfego real contra a API e a playlist HLS (via CloudFront) para confirmar que a aplicação continua servindo normalmente sem nenhuma telemetria de pé.
@@ -28,7 +30,7 @@ Variáveis de ambiente opcionais:
 - **FAIL:** algo na aplicação depende da stack de observabilidade estar de pé — investigar se algum `initContainer`/sidecar/health check da API consulta Prometheus/Loki diretamente (não deveria). **Antes de aceitar essa conclusão, confirme que o Prometheus/Alertmanager de verdade foram escalados a zero** (`kubectl -n minitube-platform get statefulset` — ambos devem aparecer na lista impressa em "Workloads to scale to zero") — um `FAIL` com esses dois ainda de pé não prova nada sobre blast radius, só que algo mais aconteceu durante a janela.
 - Ao final, confira que a stack voltou: `kubectl -n minitube-platform get deploy,statefulset` — todos com as réplicas originais, e `kubectl -n argocd get applications kube-prometheus-stack loki` de volta a `Synced`/`Healthy` (o `selfHeal` reconcilia sozinho depois do `syncPolicy` restaurado).
 
-## Resultado da execução (2026-07-26) — bug real encontrado e corrigido, resultado ainda pendente
+## Resultado da execução (2026-07-26) — bug real encontrado e corrigido
 
 Primeira execução real: pausou o `selfHeal` das duas Applications, descobriu e escalou os 5 workloads corretos a zero (`kube-prometheus-stack-grafana`, `-kube-state-metrics`, `-operator`, `-operator-webhook`, `statefulset/loki`), confirmou os `node-exporter` (DaemonSet, fora do escopo) seguindo `Running` normalmente — e então **abortou silenciosamente** logo depois de abrir o `port-forward` para a API, pulando toda a geração de tráfego e a seção de resultado. O `trap cleanup EXIT` disparou e restaurou tudo corretamente (réplicas e `syncPolicy` de volta ao original) — a parte de limpeza funcionou; a parte de medição, não.
 
