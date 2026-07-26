@@ -49,9 +49,21 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
+            # Default (1s) is too tight under real saturation -- see
+            # docs/runbooks/run-k6-waves.md, "pico do gol" result.
+            timeoutSeconds: 3
           livenessProbe:
             httpGet:
               path: /api/healthz
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 20
+            # Liveness kills the container; a slow-but-alive pod under CPU
+            # pressure is not the same failure as an actually stuck process.
+            # Default (1s timeout, 3 failures) restarted multiple pods that
+            # were simply overloaded during a real load test, cutting
+            # capacity right when it was most needed. Widened well past the
+            # worst p95 observed at the HPA's maxReplicas ceiling (~2.4s) so
+            # transient overload can't trigger a kill on its own.
+            timeoutSeconds: 5
+            failureThreshold: 5
