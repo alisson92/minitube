@@ -52,7 +52,7 @@ minitube/
 │   ├── runbooks/           # bootstrap/, validate/, chaos/, load/ (por categoria) + access-argocd-ui.md, incident-response.md na raiz
 │   └── phases/             # retrospecto de cada fase concluída, insumo da documentação final do projeto
 ├── terraform/
-│   ├── bootstrap/          # backend remoto: bucket S3 de estado (versionado, com lock); repositórios ECR
+│   ├── bootstrap/          # backend remoto: bucket S3 de estado (versionado, com lock); repositórios ECR; site de arquitetura persistente (ADR 017)
 │   ├── bootstrap-iam/      # roles IAM, permission set do operador, budget alert (persistente, admin-only)
 │   ├── modules/            # vpc, eks — módulos reutilizáveis chamados por envs/lab (ADR 013)
 │   └── envs/lab/           # VPC, EKS, S3 de vídeo, IAM da app (IRSA), CloudFront, DNS
@@ -62,6 +62,8 @@ minitube/
 ├── app/
 │   ├── api/                # FastAPI: upload + dispara Job de transcodificação
 │   └── transcoder/         # FFmpeg → HLS, roda como Job Kubernetes
+├── site/
+│   └── architecture/       # página estática de showcase da arquitetura, servida via terraform/bootstrap/ (ADR 017) — deploy via terraform/bootstrap/scripts/deploy-architecture-site.sh
 ├── load/                   # cenários k6 ("ondas de torcida")
 ├── chaos/                  # experimentos de caos simples (Fase 6)
 └── scripts/                # check-markdown-links.py — usado pelo CI e manualmente durante reorganizações
@@ -106,7 +108,7 @@ Sequência completa e detalhada (incluindo o bootstrap de conta, feito uma vez s
 > Retrato do presente — não um diário. Histórico de decisões, bugs reais e retrospectos de cada fase vive em `docs/adr/` (001–013) e `docs/phases/` (001–006).
 
 - **Roadmap completo.** Todas as 6 fases encerradas e validadas funcionalmente (critérios de conclusão cumpridos, ver tabela acima). Trabalho futuro é opcional, listado abaixo.
-- **Infraestrutura persistente entre sessões** (sem custo relevante — ver ADR 001, 004, 005): bucket de state S3; IAM Identity Center (permission set `cloudlab-operator`, roles do EKS, role de smoke test, budget alert) em `terraform/bootstrap-iam/`; dois repositórios ECR, hosted zone Route 53, certificado ACM wildcard e o parâmetro SSM da deploy key do ArgoCD em `terraform/bootstrap/`.
+- **Infraestrutura persistente entre sessões** (sem custo relevante — ver ADR 001, 004, 005): bucket de state S3; IAM Identity Center (permission set `cloudlab-operator`, roles do EKS, role de smoke test, budget alert) em `terraform/bootstrap-iam/`; dois repositórios ECR, hosted zone Route 53, certificado ACM wildcard, o parâmetro SSM da deploy key do ArgoCD e o site de showcase da arquitetura (S3 + CloudFront, `system-design.<domínio>`, [ADR 017](docs/adr/017-persistent-architecture-showcase-site.md)) em `terraform/bootstrap/`.
 - **`terraform/envs/lab/`** (VPC, EKS, S3 de vídeo, ArgoCD, CloudFront, observabilidade) é efêmero por design: sobe no início da sessão, é destruído por completo ao final, sempre confirmado sem recursos órfãos via API AWS direta. Estado no momento: **destruído**.
 - **Organização de repositório concluída** (pós-roadmap, preparação para tornar o repositório público): nomes de arquivo/diretório em inglês (PR #36); módulos Terraform próprios `vpc`/`eks` (PR #37, [ADR 013](docs/adr/013-terraform-vpc-eks-modules.md)); `docs/runbooks/` organizado por categoria (PR #38); `load/README.md` documentando a cobertura dos scripts de carga (PR #39); este `CLAUDE.md` reescrito de diário de sessão para retrato atual (PR #40); auditoria de comentários redundantes/verbosos em todo o código `.tf`/`.yaml`/`.sh`/`.js`/`.py` (PR #41); auditoria de documentação (3 conteúdos desatualizados corrigidos, PR #42) e [`docs/runbooks/run-the-project.md`](docs/runbooks/run-the-project.md) — runbook único cobrindo a sequência completa, do bootstrap de conta ao `destroy`, incluindo a ressalva explícita sobre os recursos de `bootstrap-iam/` que exigem sessão root/CloudShell.
 - **`Makefile` na raiz (`make validate-all`):** roda as 6 checagens funcionais de `envs/lab` em ordem de dependência, continuando mesmo se uma falhar, com um resumo `PASS`/`FAIL` por checagem e exit code não-zero se qualquer uma falhar — substitui rodar cada `scripts/validate-*.sh` isoladamente. Alvos individuais via `make help` (inclui `validate-budget`, separado por ser sobre `bootstrap-iam/`, não `envs/lab`). Lógica de captura de resultado testada com scripts falsos antes de integrar aos reais (2 falhas simuladas → resumo e exit code corretos; todos passando → exit 0).
@@ -117,4 +119,5 @@ Sequência completa e detalhada (incluindo o bootstrap de conta, feito uma vez s
   1. Achar o teto exato de capacidade além do já confirmado `PEAK_RATE=800`/`maxReplicas: 6` (escalar mais, ou subir `maxReplicas`).
   2. KEDA como alternativa ao HPA por CPU.
   3. Habilitar "Additional metrics" no CloudFront, se o hit ratio real no dashboard for importante.
-  4. Tornar o repositório público para portfólio/LinkedIn (decisão de fundo já registrada no [ADR 007](docs/adr/007-argocd-gitops-bootstrap.md)) — pendente de concluir a rodada de organização em andamento.
+  4. Tornar o repositório público para portfólio/LinkedIn (decisão de fundo já registrada no [ADR 007](docs/adr/007-argocd-gitops-bootstrap.md)) — pendente de concluir a rodada de organização em andamento. O link "View the source" do site de arquitetura (item 5) só funciona para visitantes depois disso.
+  5. Aplicar `terraform/bootstrap/architecture-site.tf` (ADR 017) e rodar o primeiro deploy (`docs/runbooks/deploy-architecture-site.md`) — código pronto e revisado nesta sessão, ainda não aplicado na conta real.
