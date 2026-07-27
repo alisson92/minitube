@@ -1,7 +1,6 @@
-from kubernetes import client, config
-
 import s3_client
 from config import settings
+from kubernetes import client, config
 
 # In-cluster only: the API always runs as a pod (see gitops/app/deployment.yaml),
 # never locally against a kubeconfig.

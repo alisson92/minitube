@@ -2,7 +2,6 @@ from typing import BinaryIO
 
 import boto3
 from botocore.exceptions import ClientError
-
 from config import settings
 
 _s3 = boto3.client("s3", region_name=settings.aws_region)

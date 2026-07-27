@@ -1,0 +1,147 @@
+name: CI
+
+# Static checks only -- no AWS credentials anywhere in this workflow.
+# terraform validate/tflint run with -backend=false / no cloud calls;
+# the daily operator's SSO session is the only thing ever allowed to touch
+# the real account (docs/runbooks/run-the-project.md).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: "1.15.8"
+  TFLINT_VERSION: "v0.55.1"
+  SHELLCHECK_VERSION: "0.10.0"
+  GITLEAKS_VERSION: "8.24.3"
+  TRIVY_VERSION: "0.72.0"
+
+jobs:
+  terraform-fmt:
+    name: terraform fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive
+
+  terraform:
+    name: terraform validate + tflint (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - terraform/bootstrap
+          - terraform/bootstrap-iam
+          - terraform/envs/lab
+          - terraform/modules/vpc
+          - terraform/modules/eks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      # No AWS credentials in this job -- -backend=false skips the S3
+      # backend entirely, so `validate` only checks the config against the
+      # provider schema, never touching real state.
+      - name: terraform init (no backend)
+        working-directory: ${{ matrix.dir }}
+        run: terraform init -backend=false
+
+      - name: terraform validate
+        working-directory: ${{ matrix.dir }}
+        run: terraform validate
+
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: tflint
+        working-directory: ${{ matrix.dir }}
+        run: |
+          tflint --init
+          tflint
+
+  security:
+    name: security (trivy config, gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks scans full history, not just this ref
+
+      # Not the project's own install.sh (contrib/install.sh) -- it resolves
+      # downloads through get.trivy.dev, which 404's for some historical
+      # versions (confirmed by hand). Straight from the GitHub release,
+      # same pattern as every other tool in this workflow.
+      - name: Install trivy
+        run: |
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            -o /tmp/trivy.tar.gz
+          sudo tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+
+      # .trivyignore documents every accepted finding and why -- these are
+      # deliberate cost/simplicity trade-offs for a personal lab
+      # (CLAUDE.md principles 4-5), not oversights.
+      - name: trivy config scan (terraform/)
+        run: trivy config --exit-code 1 terraform/
+
+      - name: Install gitleaks
+        run: |
+          curl -sfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tar.gz
+          tar -xf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+
+      # .gitleaks.toml allowlists one confirmed false positive (a kubectl
+      # condition name with enough entropy to look like a generic API key)
+      # -- see the file for the exact reasoning.
+      - name: gitleaks (full history)
+        run: gitleaks git --config .gitleaks.toml --redact
+
+  lint:
+    name: lint (yaml, shell, python, markdown links)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install yamllint + ruff
+        run: pip install yamllint==1.38.0 ruff==0.16.0
+
+      - name: yamllint
+        run: yamllint -c .yamllint $(git ls-files '*.yaml' '*.yml')
+
+      - name: Install shellcheck
+        run: |
+          curl -sfL "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+            -o /tmp/shellcheck.tar.xz
+          tar -xf /tmp/shellcheck.tar.xz -C /tmp
+          sudo cp "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/
+
+      # Only fails on warning/error -- every remaining info-level finding
+      # is a confirmed false positive (SC2317 on every `trap cleanup EXIT`
+      # function, plus two safe, intentional patterns). See the comment
+      # audit PR (#41) for the reasoning; not re-litigated per-file here.
+      - name: shellcheck
+        run: shellcheck --severity=warning -x $(git ls-files '*.sh')
+
+      - name: ruff
+        run: ruff check $(git ls-files '*.py')
+
+      - name: markdown links
+        run: python3 scripts/check-markdown-links.py

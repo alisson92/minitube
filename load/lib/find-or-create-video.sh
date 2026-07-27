@@ -1,3 +1,6 @@
+# shellcheck shell=bash
+# Meant to be sourced, not executed directly -- no shebang of its own.
+#
 # Shared by all four load/run-*.sh scripts (see load/README.md for what
 # each one covers): finds an
 # existing transcoded video in S3, or uploads a synthetic one via the real

@@ -4,7 +4,7 @@
 # `serviceAccount.*`. Only the controller talks to the AWS API; the node
 # DaemonSet only mounts/formats locally, no IRSA role needed.
 controller:
-  replicaCount: 1 # chart default is 2 -- 1 is enough for a lab, saves a pod slot
+  replicaCount: 1  # chart default is 2 -- 1 is enough for a lab, saves a pod slot
   serviceAccount:
     create: true
     name: ebs-csi-controller-sa

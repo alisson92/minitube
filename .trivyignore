@@ -1,0 +1,47 @@
+# Findings accepted for this project's stated scope -- a personal
+# cost-controlled learning lab (CLAUDE.md principles 4-5), not a
+# production environment. Each one below is a deliberate trade-off,
+# not an oversight; several are already documented in-code or in an ADR.
+# Re-evaluate if this project's threat model or budget ever changes.
+
+# EKS control plane logging / secret encryption via KMS / public endpoint --
+# same trade-off already documented inline on aws_eks_cluster.this
+# (terraform/modules/eks/main.tf): kubectl from the operator's laptop
+# without a bastion, kept simple on purpose for a single-operator lab.
+AVD-AWS-0038
+AVD-AWS-0039
+AVD-AWS-0040
+AVD-AWS-0041
+
+# S3 SSE-S3 (AES256) over a customer-managed KMS key -- explicit decision
+# in docs/adr/001-terraform-state-backend.md ("sem custo de KMS"), applied
+# consistently to every bucket in this project, not just the state one.
+AVD-AWS-0132
+
+# ECR default encryption over a customer-managed KMS key -- same reasoning
+# as AVD-AWS-0132, applied to the two ECR repositories.
+AVD-AWS-0033
+
+# Video bucket (terraform/envs/lab/s3.tf) is intentionally unversioned --
+# ephemeral by design (force_destroy, torn down every session), unlike the
+# state bucket, which is versioned.
+AVD-AWS-0090
+
+# No CloudFront WAF / access logging -- real ongoing cost (WAF ACL +
+# per-request charges, extra S3 storage for logs) with no attacker model
+# that justifies it for a personal lab behind its own domain.
+AVD-AWS-0010
+AVD-AWS-0011
+
+# No S3 access logging (state or video bucket) -- extra storage cost for
+# an audit trail CloudTrail already covers for a single operator.
+s3-bucket-logging
+
+# Public subnets legitimately assign public IPs (that's what makes them
+# "public" -- NAT Gateway and the ALB need one) -- not a security lapse.
+AVD-AWS-0164
+
+# No VPC Flow Logs -- CloudWatch Logs ingestion cost with no compliance
+# requirement for this project. Candidate for the observability stack if
+# ever revisited (see CLAUDE.md "Próximos passos").
+AVD-AWS-0178

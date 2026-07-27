@@ -1,5 +1,7 @@
 # MiniTube 📺
 
+[![CI](https://github.com/alisson92/minitube/actions/workflows/ci.yml/badge.svg)](https://github.com/alisson92/minitube/actions/workflows/ci.yml)
+
 Uma mini plataforma de streaming de vídeo construída de ponta a ponta como projeto de estudo em **DevOps e SRE** — inspirada na pergunta: *"como o YouTube aguentou o recorde de público das lives da CazéTV na Copa do Mundo?"*
 
 A resposta curta: cache na borda, camadas que filtram tráfego e uma origem que escala horizontalmente. Este projeto reproduz essa arquitetura em miniatura na AWS e a submete ao seu próprio "dia do jogo" com testes de carga. A história completa está em [`docs/000-motivation.md`](docs/000-motivation.md).
@@ -35,6 +37,7 @@ load/        # cenários k6
 chaos/       # experimentos de caos (kill pod, drain node, derrubar observabilidade)
 docs/        # motivação, ADRs, runbooks e retrospectos por fase
 Makefile     # make validate-all -- roda as 6 checagens funcionais em ordem, sem parar no primeiro erro
+.github/workflows/  # CI: fmt/validate/tflint, trivy/gitleaks, yamllint/shellcheck/ruff/links -- só checagens estáticas, sem credenciais AWS
 ```
 
 ## Como começar
