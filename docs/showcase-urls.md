@@ -2,7 +2,11 @@
 
 > Checklist de apoio para capturar prints/evidências do MiniTube rodando de verdade, como preparação para a divulgação em portfólio/LinkedIn combinada no [ADR 007](adr/007-argocd-gitops-bootstrap.md) (decisão de tornar o repositório público **deliberadamente ao final do projeto**, não incidentalmente). Não é um runbook operacional — para subir/derrubar o ambiente ou operá-lo no dia a dia, ver [`docs/runbooks/run-the-project.md`](runbooks/run-the-project.md).
 
-## URLs públicas
+## Página de arquitetura (sempre disponível, mesmo com `envs/lab` destruído)
+
+`https://system-design.minitube.projetodevops.com.br` — versão interativa dos diagramas de `docs/architecture.md`. Diferente das três URLs abaixo, **não depende de `envs/lab` estar de pé**: é servida por `terraform/bootstrap/architecture-site.tf` (S3 + CloudFront, persistente por design, mesma categoria do bucket de state/ECR/hosted zone — ver [ADR 017](adr/017-persistent-architecture-showcase-site.md)). Ideal como o link principal do post, funciona mesmo entre sessões.
+
+## URLs públicas (exigem `envs/lab` aplicado)
 
 | UI | URL | O que mostra | Usuário | Senha |
 | --- | --- | --- | --- | --- |
@@ -10,7 +14,7 @@
 | ArgoCD | `https://argocd.minitube.projetodevops.com.br` | GitOps de ponta a ponta: todas as `Application`s `Synced`/`Healthy`, reconciliadas a partir do Git | `admin` | `cd terraform/envs/lab && terraform output -raw argocd_admin_password` — ver [`access-argocd-ui.md`](runbooks/access-argocd-ui.md) |
 | Grafana | `https://grafana.minitube.projetodevops.com.br` | Dashboard "dia do jogo" (latência, saturação/HPA, erros), Explore para Loki | `admin` | `cd terraform/envs/lab && terraform output -raw grafana_admin_password` |
 
-Todas as três URLs vêm do mesmo domínio próprio (`var.domain_name`, hosted zone Route 53 em `terraform/bootstrap/dns.tf`), com certificado ACM wildcard — HTTPS válido nas três.
+Todas as três URLs vêm do mesmo domínio próprio (`var.domain_name`, hosted zone Route 53 em `terraform/bootstrap/dns.tf`), com certificado ACM wildcard — HTTPS válido nas três. Só ficam no ar enquanto `envs/lab` estiver aplicado (ao contrário da página de arquitetura acima).
 
 ## O que não tem URL própria
 
