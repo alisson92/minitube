@@ -1,28 +1,28 @@
-# 002 — Conta AWS dedicada e bootstrap de IAM via Terraform
+# 002 — Dedicated AWS account and IAM bootstrap via Terraform
 
 ## Status
 
-Aceito
+Accepted
 
-## Contexto
+## Context
 
-A primeira tentativa de `terraform apply` do bucket de state falhou: o usuário IAM configurado localmente (`lab-operator`, conta `455162168775`) não tinha permissão `s3:CreateBucket`, e não havia registro de qual conta/administrador o criou originalmente — a conta não era rastreável nem documentada.
+The first attempt to `terraform apply` the state bucket failed: the locally configured IAM user (`lab-operator`, account `455162168775`) didn't have `s3:CreateBucket` permission, and there was no record of which account/administrator originally created it — the account was neither traceable nor documented.
 
-## Decisão
+## Decision
 
-1. **Conta AWS nova e dedicada**, com e-mail próprio (`alisson.cloudlab@gmail.com`), usada para gerenciar múltiplos projetos pessoais de laboratório de cloud — não amarrada só ao MiniTube.
-2. **Nenhuma credencial de longa duração para root.** O root só é usado para: definir senha, ativar MFA, e abrir o AWS CloudShell uma única vez. O CloudShell herda as credenciais temporárias da sessão do console, permitindo rodar `terraform apply` sem nunca gerar uma access key de root (prática desencorajada pela própria AWS).
-3. **Usuário operacional criado via Terraform, não manualmente:** `cloudlab-operator` (`terraform/bootstrap-iam/`), com a policy gerenciada `PowerUserAccess` — acesso amplo à maioria dos serviços AWS, mas exclui gestão de IAM/Organizations. Essa exclusão é o que mantém a separação de privilégio entre a identidade administrativa (root, uso raríssimo) e a identidade de uso diário.
-4. **Recursos IAM isolados em módulo próprio (`terraform/bootstrap-iam/`), separado do bucket de state (`terraform/bootstrap/`).** Na primeira tentativa, os dois viviam no mesmo state, e o `cloudlab-operator` não conseguia nem rodar `terraform plan` ali — a atualização de state tenta ler `aws_iam_user.operator`, e a própria `PowerUserAccess` proíbe isso (`iam:GetUser` negado). Separar os states resolve: `terraform/bootstrap/` (bucket S3) fica de uso diário e liso para o `cloudlab-operator`; `terraform/bootstrap-iam/` (usuário, policy, access key) só pode ser planejado/aplicado com sessão admin (CloudShell), o que é coerente com o item 3 já ser um evento raro.
+1. **New, dedicated AWS account**, with its own email (`alisson.cloudlab@gmail.com`), used to manage multiple personal cloud lab projects — not tied only to MiniTube.
+2. **No long-lived credentials for root.** Root is only used to: set the password, enable MFA, and open AWS CloudShell once. CloudShell inherits the console session's temporary credentials, allowing `terraform apply` to run without ever generating a root access key (a practice discouraged by AWS itself).
+3. **Operational user created via Terraform, not manually:** `cloudlab-operator` (`terraform/bootstrap-iam/`), with the managed policy `PowerUserAccess` — broad access to most AWS services, but excludes IAM/Organizations management. This exclusion is what maintains the privilege separation between the administrative identity (root, very rare use) and the daily-use identity.
+4. **IAM resources isolated in their own module (`terraform/bootstrap-iam/`), separate from the state bucket (`terraform/bootstrap/`).** In the first attempt, the two lived in the same state, and `cloudlab-operator` couldn't even run `terraform plan` there — the state refresh tries to read `aws_iam_user.operator`, and `PowerUserAccess` itself forbids that (`iam:GetUser` denied). Separating the states solves this: `terraform/bootstrap/` (S3 bucket) is daily-use and smooth for `cloudlab-operator`; `terraform/bootstrap-iam/` (user, policy, access key) can only be planned/applied with an admin session (CloudShell), which is consistent with item 3 already being a rare event.
 
-### Alternativas consideradas
+### Alternatives considered
 
-- **Policy customizada, crescente por fase:** mais alinhada ao princípio de menor privilégio, mas exigiria reabrir uma sessão root/CloudShell a cada serviço AWS novo tocado por uma fase do projeto — fricção operacional descartada para um projeto pessoal de operador único.
-- **AdministratorAccess no operador diário:** descartada por remover completamente a separação entre identidade admin e identidade operacional, o que viola o princípio de menor privilégio mesmo em contexto de lab pessoal.
+- **Custom policy, growing per phase:** more aligned with the least-privilege principle, but would require reopening a root/CloudShell session every time a phase touched a new AWS service — operational friction discarded for a single-operator personal project.
+- **AdministratorAccess for the daily operator:** discarded for completely removing the separation between the admin identity and the operational identity, which violates the least-privilege principle even in a personal lab context.
 
-## Consequências
+## Consequences
 
-- Qualquer mudança futura de IAM (nova policy, novo usuário) exige repetir o procedimento manual do CloudShell dentro de `terraform/bootstrap-iam/` — é um evento raro e documentado em [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](../runbooks/bootstrap/aws-account-bootstrap.md), não parte do fluxo normal de `apply`/`destroy` das sessões.
-- `terraform/bootstrap/` (bucket de state) pode ser planejado/aplicado normalmente pelo `cloudlab-operator`, local, sem CloudShell — é o único diretório do projeto com essa característica na Fase 1, já que os demais (VPC, EKS, etc.) também não tocam IAM.
-- A conta antiga (`455162168775`, `lab-operator`) é abandonada; nenhuma limpeza é necessária ali além de, eventualmente, encerrá-la se não tiver mais uso.
-- O output `operator_secret_access_key` é sensível e só deve ser lido uma vez, no momento da configuração do profile local — nunca deve aparecer em logs ou ser commitado.
+- Any future IAM change (new policy, new user) requires repeating the manual CloudShell procedure inside `terraform/bootstrap-iam/` — a rare event, documented in [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](../runbooks/bootstrap/aws-account-bootstrap.md), not part of the normal `apply`/`destroy` flow of sessions.
+- `terraform/bootstrap/` (state bucket) can be planned/applied normally by `cloudlab-operator`, locally, without CloudShell — it's the only directory in the project with this characteristic in Phase 1, since the others (VPC, EKS, etc.) also don't touch IAM.
+- The old account (`455162168775`, `lab-operator`) is abandoned; no cleanup is necessary there beyond, eventually, closing it if it has no further use.
+- The `operator_secret_access_key` output is sensitive and should only be read once, at the moment of configuring the local profile — it must never appear in logs or be committed.

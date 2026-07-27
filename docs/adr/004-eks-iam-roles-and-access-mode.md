@@ -1,52 +1,52 @@
-# 004 — Roles IAM do EKS, modo de autenticação e node group gerenciado
+# 004 — EKS IAM roles, authentication mode, and managed node group
 
 ## Status
 
-Aceito
+Accepted
 
-## Contexto
+## Context
 
-O próximo entregável da Fase 1 é o EKS com node group spot em `terraform/envs/lab/`, reaproveitando a VPC já validada. Isso exige decisões de arquitetura sobre onde ficam as roles IAM do cluster/node, como conceder acesso ao operador diário e que tipo de node group usar.
+The next deliverable of Phase 1 is EKS with a spot node group in `terraform/envs/lab/`, reusing the already-validated VPC. This raises architecture decisions about where the cluster/node IAM roles live, how to grant access to the daily operator, and what type of node group to use.
 
-## Decisões
+## Decisions
 
-### 1. Roles do cluster e do node vivem em `terraform/bootstrap-iam/`, não em `terraform/envs/lab/`
+### 1. Cluster and node roles live in `terraform/bootstrap-iam/`, not in `terraform/envs/lab/`
 
-Mesma razão dos ADRs 002/003: a policy `PowerUserAccess` do `cloudlab-operator` exclui **toda** ação de IAM, inclusive leituras (`iam:GetRole`, `iam:GetInstanceProfile`). As roles `minitube-eks-cluster-role` e `minitube-eks-node-role` só podem ser criadas via sessão root/CloudShell. `terraform/envs/lab/` as referencia por nome via `data "aws_iam_role"`, depois que a policy inline do permission set liberar `iam:GetRole`/`iam:PassRole` escopado a essas duas ARNs — o mesmo padrão já usado para a instance profile do smoke test de rede.
+Same reason as ADRs 002/003: the `cloudlab-operator`'s `PowerUserAccess` policy excludes **all** IAM actions, including reads (`iam:GetRole`, `iam:GetInstanceProfile`). The `minitube-eks-cluster-role` and `minitube-eks-node-role` roles can only be created via a root/CloudShell session. `terraform/envs/lab/` references them by name via `data "aws_iam_role"`, after the permission set's inline policy grants `iam:GetRole`/`iam:PassRole` scoped to these two ARNs — the same pattern already used for the network smoke test's instance profile.
 
-Consequência prática: um `destroy`/`apply` completo de `envs/lab` (critério de conclusão da Fase 1) nunca precisa reaplicar `bootstrap-iam` — as roles persistem fora do ciclo efêmero do ambiente.
+Practical consequence: a full `destroy`/`apply` of `envs/lab` (Phase 1 completion criterion) never needs to reapply `bootstrap-iam` — the roles persist outside the environment's ephemeral cycle.
 
-### 2. Uma única inline policy, editada e não duplicada
+### 2. A single inline policy, edited rather than duplicated
 
-A API do IAM Identity Center aceita **no máximo uma** inline policy por permission set. O recurso que já existia (`operator_pass_smoke_test_role`, liberando `iam:PassRole`/`iam:GetInstanceProfile` só para a role do smoke test de rede) foi renomeado para `operator_pass_roles` e passou a ter dois `Statement` (`Sid`s `PassSmokeTestRole` e `PassEksRoles`). Qualquer necessidade futura de `PassRole` para uma nova role (ex. IRSA de algum add-on) deve seguir o mesmo padrão: adicionar um `Statement` a este mesmo recurso, nunca criar um segundo `aws_ssoadmin_permission_set_inline_policy`.
+The IAM Identity Center API accepts **at most one** inline policy per permission set. The resource that already existed (`operator_pass_smoke_test_role`, granting `iam:PassRole`/`iam:GetInstanceProfile` only for the network smoke test role) was renamed to `operator_pass_roles` and now has two `Statement`s (`Sid`s `PassSmokeTestRole` and `PassEksRoles`). Any future need for `PassRole` on a new role (e.g., IRSA for some add-on) must follow the same pattern: add a `Statement` to this same resource, never create a second `aws_ssoadmin_permission_set_inline_policy`.
 
-### 3. `authentication_mode = "API"` em vez de `CONFIG_MAP`
+### 3. `authentication_mode = "API"` instead of `CONFIG_MAP`
 
-O cluster usa **access entries** (modo `API`) com `bootstrap_cluster_creator_admin_permissions = true`, em vez do `aws-auth` ConfigMap legado. É o modo recomendado atualmente pela AWS para clusters novos, elimina a necessidade de editar um ConfigMap manualmente para conceder acesso, e o operador que aplica o Terraform já recebe permissões de admin no cluster automaticamente.
+The cluster uses **access entries** (`API` mode) with `bootstrap_cluster_creator_admin_permissions = true`, instead of the legacy `aws-auth` ConfigMap. This is the mode currently recommended by AWS for new clusters, eliminates the need to manually edit a ConfigMap to grant access, and the operator applying the Terraform automatically gets admin permissions on the cluster.
 
-### 4. Node group gerenciado (`aws_eks_node_group`), não self-managed
+### 4. Managed node group (`aws_eks_node_group`), not self-managed
 
-Um managed node group cobre o Auto Scaling Group, a seleção de AMI otimizada e o dreno de nodes na atualização, sem exigir reimplementar isso em Terraform puro. Para um projeto de aprendizado, entender o EKS não exige reconstruir o que o node group gerenciado já resolve — o aprendizado de "como funciona por baixo" fica para quando fizer sentido (ex. ao investigar spot interruption handling).
+A managed node group covers the Auto Scaling Group, optimized AMI selection, and node draining on updates, without requiring reimplementing this in pure Terraform. For a learning project, understanding EKS doesn't require rebuilding what the managed node group already solves — the "how it works underneath" learning is left for when it makes sense (e.g., when investigating spot interruption handling).
 
-### 5. `aws_iam_openid_connect_provider` (IRSA) criado já nesta fase
+### 5. `aws_iam_openid_connect_provider` (IRSA) already created in this phase
 
-O provider OIDC é um recurso único, barato e idempotente por cluster. Criá-lo agora evita um retrofit acoplado à VPC/cluster quando o primeiro add-on que precisa de IRSA for implementado (Fase 4: aws-load-balancer-controller/external-dns/cert-manager; Fase 6: cluster-autoscaler ou Karpenter). Nenhuma IAM role de IRSA específica é criada agora — cada add-on cria a sua própria role só quando for implementado (YAGNI aplicado à role, não ao provider).
+The OIDC provider is a single, cheap, idempotent resource per cluster. Creating it now avoids a retrofit coupled to the VPC/cluster when the first add-on that needs IRSA is implemented (Phase 4: aws-load-balancer-controller/external-dns/cert-manager; Phase 6: cluster-autoscaler or Karpenter). No specific IRSA IAM role is created now — each add-on creates its own role only when implemented (YAGNI applied to the role, not the provider).
 
-### Alternativas consideradas
+### Alternatives considered
 
-- **Roles do EKS em `envs/lab`:** descartada pelo mesmo motivo do ADR 002 — `PowerUserAccess` bloqueia toda ação de IAM ao operador diário.
-- **Segunda inline policy separada:** tecnicamente impossível — a API do Identity Center rejeita mais de uma inline policy por permission set.
-- **`authentication_mode = "CONFIG_MAP"`:** descartada — depende do `aws-auth` ConfigMap legado, que a própria AWS está descontinuando como caminho recomendado.
-- **Self-managed node group (ASG + launch template próprios):** descartada para esta fase — mais código para manter sem ganho de aprendizado proporcional; pode ser revisitada em ADR futuro se o projeto precisar de controle mais fino sobre o ciclo de vida dos nodes.
-- **Adiar o OIDC provider para a Fase 4:** descartada — o custo de criar agora é desprezível, e adiar significaria tocar o módulo EKS de novo só para adicionar um recurso que não depende de nenhuma decisão ainda em aberto.
+- **EKS roles in `envs/lab`:** discarded for the same reason as ADR 002 — `PowerUserAccess` blocks all IAM actions for the daily operator.
+- **Second separate inline policy:** technically impossible — the Identity Center API rejects more than one inline policy per permission set.
+- **`authentication_mode = "CONFIG_MAP"`:** discarded — depends on the legacy `aws-auth` ConfigMap, which AWS itself is phasing out as the recommended path.
+- **Self-managed node group (own ASG + launch template):** discarded for this phase — more code to maintain without proportional learning gain; can be revisited in a future ADR if the project needs finer control over node lifecycle.
+- **Postpone the OIDC provider to Phase 4:** discarded — the cost of creating it now is negligible, and postponing it would mean touching the EKS module again just to add a resource that doesn't depend on any still-open decision.
 
-## Consequências
+## Consequences
 
-- `terraform/bootstrap-iam/main.tf` cresce com duas roles e uma policy inline unificada — qualquer novo `PassRole` futuro edita esse mesmo recurso.
-- `terraform/envs/lab/` ganha `eks.tf`, novas variáveis (`eks_cluster_version`, `eks_node_instance_types`, `eks_node_desired_size`/`min_size`/`max_size`) e novos outputs (`eks_cluster_name`, `eks_cluster_endpoint`, `eks_cluster_certificate_authority_data`, `eks_oidc_provider_arn`).
-- A validação funcional pós-apply (seção 11 do `engineering-standards.md`) ganha `scripts/validate-eks.sh` e o runbook [`docs/runbooks/validate/validate-eks-cluster.md`](../runbooks/validate/validate-eks-cluster.md).
-- O endpoint público do cluster (`endpoint_public_access = true`) fica habilitado por simplicidade de acesso via kubectl no lab; se o projeto precisar restringir isso (ex. por `public_access_cidrs`), essa mudança merece seu próprio ADR quando o contexto de rede da Fase 4/5 estiver mais claro.
+- `terraform/bootstrap-iam/main.tf` grows with two roles and a unified inline policy — any future new `PassRole` edits this same resource.
+- `terraform/envs/lab/` gains `eks.tf`, new variables (`eks_cluster_version`, `eks_node_instance_types`, `eks_node_desired_size`/`min_size`/`max_size`), and new outputs (`eks_cluster_name`, `eks_cluster_endpoint`, `eks_cluster_certificate_authority_data`, `eks_oidc_provider_arn`).
+- Post-apply functional validation (section 11 of `engineering-standards.md`) gains `scripts/validate-eks.sh` and the runbook [`docs/runbooks/validate/validate-eks-cluster.md`](../runbooks/validate/validate-eks-cluster.md).
+- The cluster's public endpoint (`endpoint_public_access = true`) is enabled for simplicity of kubectl access in the lab; if the project needs to restrict this (e.g., via `public_access_cidrs`), that change deserves its own ADR once the Phase 4/5 network context is clearer.
 
-> **Atualização (Fase 2):** a suposição de que "o operador que aplica o Terraform já recebe permissões de admin automaticamente" (`bootstrap_cluster_creator_admin_permissions`) só vale para quem *criou* o cluster — na prática, isso foi o CloudShell/root na Fase 1, não o `cloudlab-operator`. Como o objetivo do projeto é que o operador diário use `envs/lab` sem depender de CloudShell, isso precisou de um `aws_eks_access_entry` explícito. Decisão registrada em [ADR 006](006-app-irsa-and-job-orchestration.md).
+> **Update (Phase 2):** the assumption that "the operator applying the Terraform automatically gets admin permissions" (`bootstrap_cluster_creator_admin_permissions`) only holds for whoever *created* the cluster — in practice, that was CloudShell/root in Phase 1, not `cloudlab-operator`. Since the project's goal is for the daily operator to use `envs/lab` without depending on CloudShell, this required an explicit `aws_eks_access_entry`. Decision recorded in [ADR 006](006-app-irsa-and-job-orchestration.md).
 
-> **Atualização (Fase 5):** `bootstrap_cluster_creator_admin_permissions = true` foi revertida para `false`. A access entry automática que essa flag cria para quem chama `CreateCluster` colide (`409 ResourceInUseException`) com a `aws_eks_access_entry` explícita sempre que as duas apontam pro mesmo principal — o que passou a acontecer sempre que o próprio `cloudlab-operator` (não CloudShell/root) roda o `apply`. Em vez de seguir contornando isso pontualmente por sessão (como no ADR 007, item 11), o acesso ao cluster passou a ser 100% declarado pelo Terraform, sem depender de quem aplica. Decisão registrada em [ADR 009](009-eks-access-entries-and-api-edge-routing.md).
+> **Update (Phase 5):** `bootstrap_cluster_creator_admin_permissions = true` was reverted to `false`. The automatic access entry that this flag creates for whoever calls `CreateCluster` collides (`409 ResourceInUseException`) with the explicit `aws_eks_access_entry` whenever the two point to the same principal — which started happening whenever `cloudlab-operator` itself (not CloudShell/root) ran the `apply`. Instead of continuing to work around this on a per-session basis (as in ADR 007, item 11), cluster access became 100% declared by Terraform, independent of who applies it. Decision recorded in [ADR 009](009-eks-access-entries-and-api-edge-routing.md).

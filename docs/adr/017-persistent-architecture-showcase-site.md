@@ -1,45 +1,45 @@
-# 017 — Página de arquitetura persistente (`system-design.<domínio>`)
+# 017 — Persistent architecture page (`system-design.<domain>`)
 
 ## Status
 
-Aceito
+Accepted
 
-## Contexto
+## Context
 
-`docs/architecture.md` já existia como "material-base para divulgação" (ver `docs/showcase-urls.md`), pensado desde a Fase 4 para virar conteúdo de portfólio/LinkedIn ao final do projeto (decisão de fundo registrada no [ADR 007](007-argocd-gitops-bootstrap.md)). O plano original era só uma versão HTML mais rica visualmente desses diagramas, para anexar a um post.
+`docs/architecture.md` already existed as "base material for outreach" (see `docs/showcase-urls.md`), intended since Phase 4 to become portfolio/LinkedIn content at the end of the project (underlying decision recorded in [ADR 007](007-argocd-gitops-bootstrap.md)). The original plan was just a visually richer HTML version of these diagrams, to attach to a post.
 
-Nesta sessão o operador propôs ir além: hospedar essa página **persistentemente**, num subdomínio próprio (`system-design.minitube.projetodevops.com.br`), para que a arquitetura fique navegável mesmo com `envs/lab` destruído — o estado normal do projeto entre sessões (princípio 1 do `CLAUDE.md`). Ou seja, uma vitrine que sobrevive exatamente quando o restante do sistema não está de pé para ser mostrado ao vivo.
+In this session the operator proposed going further: hosting this page **persistently**, on its own subdomain (`system-design.minitube.projetodevops.com.br`), so the architecture stays browsable even with `envs/lab` destroyed — the project's normal state between sessions (`CLAUDE.md` principle 1). In other words, a showcase that survives exactly when the rest of the system isn't up to be shown live.
 
-## Decisões
+## Decisions
 
-### 1. Recurso novo em `terraform/bootstrap/`, não em `envs/lab/`
+### 1. New resource in `terraform/bootstrap/`, not in `envs/lab/`
 
-`terraform/bootstrap/` já é o lugar dos recursos de custo baixo e fixo que sobrevivem ao ciclo efêmero — bucket de state, repositórios ECR, hosted zone Route 53, certificado ACM wildcard, parâmetro SSM da deploy key ([ADR 001](001-terraform-state-backend.md), [008](008-cloudfront-dns-tls.md)). Uma página que precisa ficar no ar independente de `envs/lab` pertence à mesma categoria — não é uma exceção nova ao princípio de infraestrutura efêmera, é mais um membro dele.
+`terraform/bootstrap/` is already the place for low, fixed-cost resources that survive the ephemeral cycle — the state bucket, ECR repositories, the Route 53 hosted zone, the wildcard ACM certificate, the ArgoCD deploy key's SSM parameter ([ADR 001](001-terraform-state-backend.md), [008](008-cloudfront-dns-tls.md)). A page that needs to stay up independent of `envs/lab` belongs in the same category — this isn't a new exception to the ephemeral infrastructure principle, it's one more member of it.
 
-### 2. Mesmo padrão S3 + OAC + CloudFront já validado, reaproveitado dentro do mesmo state
+### 2. Same already-validated S3 + OAC + CloudFront pattern, reused within the same state
 
-`terraform/bootstrap/architecture-site.tf` replica o shape de `envs/lab/cloudfront.tf` (origin `s3-video`: bucket privado, sem acesso público direto, `Origin Access Control`, policy escopada por `source-arn` da distribuição) — já em produção, sem reinventar. Única diferença real: como o bucket, a distribuição e o certificado wildcard agora vivem **no mesmo state**, o `viewer_certificate` referencia `aws_acm_certificate_validation.wildcard.certificate_arn` diretamente, sem precisar de um `data source` cross-module como `envs/lab` precisa.
+`terraform/bootstrap/architecture-site.tf` replicates the shape of `envs/lab/cloudfront.tf` (the `s3-video` origin: private bucket, no direct public access, `Origin Access Control`, policy scoped by the distribution's `source-arn`) — already in production, with no reinventing. Only real difference: since the bucket, the distribution, and the wildcard certificate now live **in the same state**, `viewer_certificate` references `aws_acm_certificate_validation.wildcard.certificate_arn` directly, with no need for a cross-module `data source` like `envs/lab` needs.
 
-**Alternativa descartada:** GitHub Pages (ou qualquer hospedagem externa gratuita). Rejeitada porque a base inteira necessária — hosted zone, certificado wildcard, o próprio padrão CloudFront+S3+OAC — já existe, já está testada em produção e já é código deste repositório; introduzir uma plataforma de hospedagem nova só para esta página adicionaria uma dependência externa sem necessidade, contra o objetivo didático do projeto (aprender construindo, não terceirizar a parte que já se sabe fazer).
+**Discarded alternative:** GitHub Pages (or any free external hosting). Rejected because the entire needed foundation — hosted zone, wildcard certificate, the CloudFront+S3+OAC pattern itself — already exists, is already tested in production, and is already this repository's code; introducing a new hosting platform just for this page would add an unnecessary external dependency, against the project's didactic goal (learning by building, not outsourcing the part you already know how to do).
 
-### 3. Conteúdo fora do Terraform
+### 3. Content outside Terraform
 
-O HTML/CSS/JS (`site/architecture/index.html`) é um arquivo estático versionado no repositório, **não** um `aws_s3_object` gerenciado pelo Terraform — sincronizado para o bucket por `terraform/bootstrap/scripts/deploy-architecture-site.sh` (`aws s3 sync` + invalidação do CloudFront), rodado manualmente quando o conteúdo muda. Mantém o `apply` de `bootstrap/` (recurso de infraestrutura, tocado raramente) desacoplado de ajustes de conteúdo/design (esperados com mais frequência durante a fase de divulgação).
+The HTML/CSS/JS (`site/architecture/index.html`) is a static file versioned in the repository, **not** an `aws_s3_object` managed by Terraform — synced to the bucket by `terraform/bootstrap/scripts/deploy-architecture-site.sh` (`aws s3 sync` + CloudFront invalidation), run manually whenever the content changes. Keeps `bootstrap/`'s `apply` (an infrastructure resource, touched rarely) decoupled from content/design tweaks (expected more frequently during the outreach phase).
 
-### 4. Página auto-contida, sem dependência de CDN externo
+### 4. Self-contained page, no external CDN dependency
 
-`site/architecture/index.html` é um único arquivo com CSS/JS inline, sem `<script src>`/`<link>` para recursos externos (nenhuma fonte web, nenhuma biblioteca de gráficos) — os 4 diagramas de `docs/architecture.md` foram redesenhados como componentes HTML/CSS próprios (não a renderização padrão do Mermaid), estilizados para o tema visual da página em vez de herdar a paleta genérica do Mermaid. Objetivo: robustez e velocidade de carregamento para uma página pública que qualquer visitante de LinkedIn pode abrir a qualquer momento, sem depender da disponibilidade de terceiros.
+`site/architecture/index.html` is a single file with inline CSS/JS, with no `<script src>`/`<link>` to external resources (no web font, no chart library) — the 4 diagrams from `docs/architecture.md` were redesigned as custom HTML/CSS components (not Mermaid's default rendering), styled for the page's visual theme instead of inheriting Mermaid's generic palette. Goal: robustness and load speed for a public page that any LinkedIn visitor might open at any time, without depending on third-party availability.
 
-**Tema único (escuro), deliberado:** a página assume o conceito visual de uma transmissão de jogo à noite, sob refletores — um tema claro descaracterizaria a própria ideia central, não só a paleta. Documentado como escolha consciente no próprio arquivo (comentário no `<style>`), não uma lacuna de acessibilidade não tratada.
+**Single (dark) theme, deliberate:** the page embraces the visual concept of a night-game broadcast, under floodlights — a light theme would misrepresent the core idea itself, not just the palette. Documented as a conscious choice in the file itself (a comment in the `<style>`), not an unaddressed accessibility gap.
 
-## Consequências
+## Consequences
 
-- `terraform/bootstrap/architecture-site.tf` (novo): `aws_s3_bucket`, `aws_s3_bucket_public_access_block`, `aws_s3_bucket_server_side_encryption_configuration`, `aws_cloudfront_origin_access_control`, `aws_s3_bucket_policy`, `aws_cloudfront_distribution`, `aws_route53_record` — todos com sufixo/nome `architecture_site`.
+- `terraform/bootstrap/architecture-site.tf` (new): `aws_s3_bucket`, `aws_s3_bucket_public_access_block`, `aws_s3_bucket_server_side_encryption_configuration`, `aws_cloudfront_origin_access_control`, `aws_s3_bucket_policy`, `aws_cloudfront_distribution`, `aws_route53_record` — all with the `architecture_site` suffix/name.
 - `terraform/bootstrap/outputs.tf`: `architecture_site_url`, `architecture_site_bucket_name`, `architecture_site_cloudfront_distribution_id`.
-- `terraform/bootstrap/scripts/deploy-architecture-site.sh` (novo): sincroniza `site/architecture/` para o bucket e invalida o cache, lendo bucket/distribuição via `terraform output` (nenhum valor mágico).
-- `site/architecture/index.html` (novo diretório `site/` na raiz): página única, conteúdo derivado de `docs/architecture.md`/`docs/000-motivation.md`, sem cópia 1:1 do Markdown.
-- `docs/showcase-urls.md`: nova seção listando esta URL como a única que independe de `envs/lab` estar de pé.
-- `CLAUDE.md` ("Estado atual"): recurso adicionado à lista de infraestrutura persistente entre sessões.
-- **Custo estimado:** próximo de zero — S3 (poucos KB de HTML/CSS/JS) e CloudFront cobrados só por request/transferência; tráfego esperado de portfólio (dezenas/centenas de acessos). Sem custo fixo novo além do que já existe em `terraform/bootstrap/`.
-- **Pendência conhecida, fora do escopo desta decisão:** o repositório GitHub ainda é privado (item já registrado como próximo passo no `CLAUDE.md`/ADR 007) — a página linka para ele, mas o link só funciona para visitantes depois que o repositório for tornado público.
-- Validação funcional real feita nesta mesma sessão: `terraform apply` em `bootstrap/` seguido do primeiro `scripts/deploy-architecture-site.sh` — `https://system-design.minitube.projetodevops.com.br` responde `HTTP/2 200`, HTTPS válido, servida pelo CloudFront/S3.
+- `terraform/bootstrap/scripts/deploy-architecture-site.sh` (new): syncs `site/architecture/` to the bucket and invalidates the cache, reading bucket/distribution via `terraform output` (no magic values).
+- `site/architecture/index.html` (new `site/` directory at the root): a single page, content derived from `docs/architecture.md`/`docs/000-motivation.md`, not a 1:1 copy of the Markdown.
+- `docs/showcase-urls.md`: new section listing this URL as the only one that doesn't depend on `envs/lab` being up.
+- `CLAUDE.md` ("Current state"): resource added to the list of infrastructure persistent between sessions.
+- **Estimated cost:** close to zero — S3 (a few KB of HTML/CSS/JS) and CloudFront billed only per request/transfer; expected portfolio traffic (tens/hundreds of visits). No new fixed cost beyond what already exists in `terraform/bootstrap/`.
+- **Known pending item, out of scope for this decision:** the GitHub repository is still private (already recorded as a next step in `CLAUDE.md`/ADR 007) — the page links to it, but the link only works for visitors once the repository is made public.
+- Real functional validation done in this same session: `terraform apply` in `bootstrap/` followed by the first run of `scripts/deploy-architecture-site.sh` — `https://system-design.minitube.projetodevops.com.br` responds `HTTP/2 200`, valid HTTPS, served by CloudFront/S3.

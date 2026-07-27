@@ -1,84 +1,84 @@
-# 014 — Retune do orçamento de espera pela ALB após a carga concorrente da Fase 5
+# 014 — Retuning the ALB wait budget after Phase 5's concurrent load
 
 ## Status
 
-Aceito
+Accepted
 
-## Contexto
+## Context
 
-`terraform apply` de `envs/lab` falhou em `null_resource.wait_for_alb`
-(`terraform/envs/lab/cloudfront.tf`) com "timed out waiting for ALB
-'minitube-app' to be provisioned by aws-load-balancer-controller". Uma
-segunda execução do `apply`, logo em seguida, passou sem nenhuma mudança
-de código — sintoma de falta de margem no orçamento de espera, não de um
-bug de lógica.
+`terraform apply` of `envs/lab` failed at `null_resource.wait_for_alb`
+(`terraform/envs/lab/cloudfront.tf`) with "timed out waiting for ALB
+'minitube-app' to be provisioned by aws-load-balancer-controller". A
+second run of `apply`, right afterward, passed with no code change at
+all — a symptom of insufficient margin in the wait budget, not a logic
+bug.
 
-O `null_resource.wait_for_alb` e seu poll via `aws elbv2 describe-load-balancers`
-já existiam desde o [ADR 010](010-lbc-orphan-cleanup-and-alb-wait.md), com
-orçamento de **5 minutos** (30 tentativas × 10s), calibrado numa sessão
-anterior à Fase 5 com uma amostra de só 2 execuções reais (2min01s e
-2min11s). Naquele momento, `helm_release.argocd_apps` bootstrapava 5
+`null_resource.wait_for_alb` and its poll via `aws elbv2 describe-load-balancers`
+already existed since [ADR 010](010-lbc-orphan-cleanup-and-alb-wait.md), with
+a **5-minute** budget (30 attempts × 10s), calibrated in a session
+before Phase 5 with a sample of only 2 real runs (2min01s and
+2min11s). At that point, `helm_release.argocd_apps` bootstrapped 5
 Applications: `app`, `platform`, `aws-load-balancer-controller`,
-`external-dns` e `cert-manager`.
+`external-dns`, and `cert-manager`.
 
-Desde então, o [ADR 011](011-observability-stack.md) (Fase 5 —
-observabilidade) adicionou mais 3 Applications ao **mesmo**
+Since then, [ADR 011](011-observability-stack.md) (Phase 5 —
+observability) added 3 more Applications to the **same**
 `helm_release.argocd_apps`: `ebs-csi-driver`, `kube-prometheus-stack`
-(Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics) e
-`loki`. As 8 Applications hoje sincronizam concorrentemente no ArgoCD,
-disputando CPU, memória e banda de pull de imagem nos mesmos 3 nós
-`t3.medium` fixos (`eks_node_desired_size = var.eks_node_min_size =
-var.eks_node_max_size = 3`, sem Cluster Autoscaler/Karpenter) -- exatamente
-enquanto o `aws-load-balancer-controller` também precisa subir, completar
-*leader election* e só então reconciliar o `Ingress` de `gitops/app/` para
-provisionar a ALB. O orçamento de 5 minutos do ADR 010 nunca foi revisado
-depois desse aumento de carga concorrente introduzido pelo ADR 011 -- a
-causa raiz é essa lacuna de retune, não uma falha do mecanismo de poll em
-si (que continua correto: `depends_on` sozinho não espera reconciliação
-in-cluster, só ordena chamadas de API).
+(Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics), and
+`loki`. The 8 Applications now sync concurrently on ArgoCD,
+competing for CPU, memory, and image-pull bandwidth on the same 3 fixed
+`t3.medium` nodes (`eks_node_desired_size = var.eks_node_min_size =
+var.eks_node_max_size = 3`, no Cluster Autoscaler/Karpenter) -- exactly
+while `aws-load-balancer-controller` also needs to come up, complete
+*leader election*, and only then reconcile `gitops/app/`'s `Ingress` to
+provision the ALB. ADR 010's 5-minute budget was never revisited after
+this increase in concurrent load introduced by ADR 011 -- the
+root cause is this retuning gap, not a failure of the poll mechanism
+itself (which remains correct: `depends_on` alone doesn't wait for
+in-cluster reconciliation, it only orders API calls).
 
-## Decisões
+## Decisions
 
-### 1. Orçamento elevado de 5min para 15min (900s)
+### 1. Budget raised from 5min to 15min (900s)
 
-Sem uma segunda rodada de medições reais (o objetivo aqui é dar margem
-suficiente para a variância observada, não recalibrar por amostragem
-extensa), 900s foi escolhido por ser 3x o orçamento anterior -- folga
-suficiente para a concorrência de bootstrap atual sem deixar o `apply`
-preso por tempo desproporcional caso o problema seja outro (ex.: o
-`aws-load-balancer-controller` genuinamente quebrado). Timeout de 15min
-neste ponto ainda é uma fração pequena do `apply` completo de um ambiente
-do zero.
+Without a second round of real measurements (the goal here is to give
+enough margin for the observed variance, not to recalibrate through
+extensive sampling), 900s was chosen as 3x the previous budget --
+enough slack for the current bootstrap concurrency without leaving
+`apply` stuck for a disproportionate time if the problem is something
+else (e.g., a genuinely broken `aws-load-balancer-controller`). A 15-minute
+timeout at this point is still a small fraction of a full `apply` of an
+environment from scratch.
 
-### 2. Loop reescrito por tempo decorrido, com log de progresso
+### 2. Loop rewritten by elapsed time, with progress logging
 
-O `for i in $(seq 1 30)` (contagem fixa de tentativas) virou um `while`
-sobre segundos decorridos (`deadline_seconds=900`, `interval_seconds=10`).
-Mais fácil de retunar no futuro (um único valor em segundos, não uma conta
-tentativas × intervalo) e cada iteração agora emite uma linha em `stderr`
-com o tempo decorrido -- evita que o `apply` fique em silêncio total por
-até 15 minutos, alinhado ao princípio de soluções observáveis
-(`docs/engineering-standards.md`).
+The `for i in $(seq 1 30)` (fixed attempt count) became a `while`
+loop over elapsed seconds (`deadline_seconds=900`, `interval_seconds=10`).
+Easier to retune in the future (a single value in seconds, rather than a
+count of attempts × interval), and each iteration now emits a `stderr`
+line with the elapsed time -- prevents `apply` from going completely
+silent for up to 15 minutes, in line with the observable-solutions
+principle (`docs/engineering-standards.md`).
 
-**Alternativa descartada:** manter a contagem fixa de tentativas só
-aumentando o número. Rejeitada por ser menos legível (o orçamento total
-fica implícito na multiplicação de dois números) e por não abrir espaço
-natural para o log de progresso.
+**Discarded alternative:** keeping the fixed attempt count and just
+increasing the number. Rejected as less readable (the total budget stays
+implicit in the multiplication of two numbers) and for not naturally
+opening room for the progress log.
 
-## Consequências
+## Consequences
 
-- `terraform/envs/lab/cloudfront.tf`: script do `null_resource.wait_for_alb`
-  reescrito (orçamento 900s, loop por tempo decorrido, log de progresso);
-  comentário do recurso passa a referenciar este ADR além do 010.
-- Validação funcional real (o novo orçamento realmente elimina a
-  intermitência) depende do próximo ciclo `apply` completo do ambiente --
-  não executado nesta sessão, que corrigiu o código com o `destroy` do
-  ciclo anterior já em andamento. Se uma futura sessão observar novo
-  timeout mesmo com os 900s, é sinal de que a causa não é mais só margem
-  de tempo (voltar à hipótese de um problema real no
-  `aws-load-balancer-controller`, não só retune de orçamento).
-- 2ª calibragem do mesmo mecanismo desde o ADR 010 -- se uma 3ª ocorrer,
-  considerar substituir o poll por AWS API por uma condição observável
-  diretamente no cluster (ex.: aguardar `status.loadBalancer` no `Ingress`
-  via `kubectl`), que reflete a reconciliação real em vez de inferir por
-  um proxy externo.
+- `terraform/envs/lab/cloudfront.tf`: `null_resource.wait_for_alb`'s script
+  rewritten (900s budget, elapsed-time loop, progress logging);
+  the resource's comment now references this ADR in addition to 010.
+- Real functional validation (whether the new budget actually eliminates
+  the intermittency) depends on the environment's next full `apply` cycle --
+  not run in this session, which fixed the code with the previous
+  cycle's `destroy` already in progress. If a future session observes a new
+  timeout even with the 900s, that's a sign the cause is no longer just time
+  margin (revert to the hypothesis of a real problem in
+  `aws-load-balancer-controller`, not just budget retuning).
+- 2nd calibration of the same mechanism since ADR 010 -- if a 3rd
+  happens, consider replacing the AWS API poll with an observable
+  condition directly in the cluster (e.g., waiting on the `Ingress`'s
+  `status.loadBalancer` via `kubectl`), which reflects the real
+  reconciliation instead of inferring through an external proxy.
