@@ -1,20 +1,20 @@
-# Runbook — Backend remoto do Terraform
+# Runbook — Terraform remote backend
 
-> Ver decisão em [`docs/adr/001-terraform-state-backend.md`](../../adr/001-terraform-state-backend.md).
+> See the decision in [`docs/adr/001-terraform-state-backend.md`](../../adr/001-terraform-state-backend.md).
 
-## Criação do bucket
+## Bucket creation
 
-O bucket de state é criado junto com o bootstrap de conta/IAM — ver [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](aws-account-bootstrap.md) (passos 4-7). Este runbook cobre apenas o **uso** do backend já criado.
+The state bucket is created together with the account/IAM bootstrap — see [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](aws-account-bootstrap.md) (steps 4-7). This runbook covers only the **use** of the already-created backend.
 
-## Usar o backend em um novo ambiente
+## Using the backend in a new environment
 
-Em cada novo ambiente (ex.: `terraform/envs/lab/backend.tf`):
+In each new environment (e.g. `terraform/envs/lab/backend.tf`):
 
 ```hcl
 terraform {
   backend "s3" {
     bucket       = "minitube-tfstate-<account-id>"
-    key          = "envs/lab/terraform.tfstate"   # key única por ambiente
+    key          = "envs/lab/terraform.tfstate"   # unique key per environment
     region       = "us-east-1"
     use_lockfile = true
     encrypt      = true
@@ -22,9 +22,9 @@ terraform {
 }
 ```
 
-Cada ambiente usa uma `key` própria dentro do mesmo bucket — não há necessidade de um bucket por ambiente.
+Each environment uses its own `key` within the same bucket — there's no need for one bucket per environment.
 
-## Verificação
+## Verification
 
 ```bash
 aws s3api get-bucket-versioning --profile cloudlab --bucket minitube-tfstate-<account-id>
@@ -32,8 +32,8 @@ aws s3api get-bucket-encryption --profile cloudlab --bucket minitube-tfstate-<ac
 aws s3api get-public-access-block --profile cloudlab --bucket minitube-tfstate-<account-id>
 ```
 
-Confirmar: versionamento `Enabled`, criptografia `AES256`, todas as 4 flags de bloqueio público `true`.
+Confirm: versioning `Enabled`, encryption `AES256`, all 4 public-access-block flags `true`.
 
 ## Rollback
 
-Este bucket tem `prevent_destroy = true` propositalmente (ver ADR 001). Para destruí-lo de fato (ex.: encerrando o projeto por completo), é preciso remover essa trava no código, commitar a mudança e só então rodar `terraform destroy` — nunca via console.
+This bucket has `prevent_destroy = true` on purpose (see ADR 001). To actually destroy it (e.g. when shutting down the project entirely), you need to remove that guard in the code, commit the change, and only then run `terraform destroy` — never via the console.

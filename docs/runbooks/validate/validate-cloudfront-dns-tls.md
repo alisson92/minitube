@@ -1,85 +1,85 @@
-# Runbook — Validação funcional de CloudFront, DNS/TLS e add-ons de plataforma
+# Runbook — CloudFront, DNS/TLS, and platform add-ons functional validation
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/008-cloudfront-dns-tls.md`](../../adr/008-cloudfront-dns-tls.md).
+> Establishes the "functional validation post-apply" standard described in [`docs/engineering-standards.md`](../../engineering-standards.md#11-post-apply-functional-validation). See also [`docs/adr/008-cloudfront-dns-tls.md`](../../adr/008-cloudfront-dns-tls.md).
 
-## Por que isso existe
+## Why this exists
 
-Um `terraform apply` limpo criando a distribution do CloudFront e os `ClusterIssuer`/Ingress não prova que `app.<domínio>` de fato serve vídeo real via CDN com HTTPS válido — o critério de conclusão da Fase 4. Este runbook documenta `terraform/envs/lab/scripts/validate-cloudfront-dns-tls.sh`, cuja checagem central é uma requisição HTTPS real a um playlist HLS através do CloudFront, com cadeia TLS válida e header de cache presente.
+A clean `terraform apply` creating the CloudFront distribution and the `ClusterIssuer`/Ingress does not prove that `app.<domain>` actually serves real video via the CDN with valid HTTPS — Phase 4's completion criterion. This runbook documents `terraform/envs/lab/scripts/validate-cloudfront-dns-tls.sh`, whose central check is a real HTTPS request to an HLS playlist through CloudFront, with a valid TLS chain and a cache header present.
 
-## Pré-requisitos
+## Prerequisites
 
-### 0. Zona Route 53 delegada e certificado ACM emitido (PR #1 desta fase, `terraform/bootstrap/`)
+### 0. Delegated Route 53 zone and issued ACM certificate (PR #1 of this phase, `terraform/bootstrap/`)
 
 ```bash
 cd terraform/bootstrap
-AWS_PROFILE=cloudlab terraform apply    # se ainda não aplicado
-dig NS minitube.projetodevops.com.br    # confirmar que resolve para nameservers awsdns-*
+AWS_PROFILE=cloudlab terraform apply    # if not already applied
+dig NS minitube.projetodevops.com.br    # confirm it resolves to awsdns-* nameservers
 AWS_PROFILE=cloudlab aws acm describe-certificate \
   --region us-east-1 \
   --certificate-arn "$(terraform output -raw acm_certificate_arn)" \
-  --query "Certificate.Status" --output text   # deve retornar ISSUED
+  --query "Certificate.Status" --output text   # should return ISSUED
 ```
 
-### 1. Novo grant IAM em `bootstrap-iam` — via CloudShell/root
+### 1. New IAM grant in `bootstrap-iam` — via CloudShell/root
 
 ```bash
 cd terraform/bootstrap-iam
-terraform plan     # revisar: nova Statement "ManagePlatformIrsaRoles"
+terraform plan     # review: new Statement "ManagePlatformIrsaRoles"
 terraform apply
 ```
 
-⚠️ Sem este `apply`, o `apply` de `envs/lab` falha com `AccessDenied` ao tentar criar as 3 IRSA roles de plataforma (`iam-platform.tf`).
+⚠️ Without this `apply`, the `apply` of `envs/lab` fails with `AccessDenied` when trying to create the 3 platform IRSA roles (`iam-platform.tf`).
 
-### 2. Manifests/values de `gitops/` já commitados
+### 2. `gitops/` manifests/values already committed
 
-O ArgoCD precisa achar `gitops/platform/{aws-load-balancer-controller,external-dns,cert-manager}/values.yaml`, `cert-manager/cluster-issuer.yaml`, `argocd/ingress.yaml` e `gitops/app/ingress.yaml` já na branch que `var.argocd_gitops_revision` apontar. Para testar antes do merge (mesmo padrão do ADR 007, decisão 5):
+ArgoCD needs to find `gitops/platform/{aws-load-balancer-controller,external-dns,cert-manager}/values.yaml`, `cert-manager/cluster-issuer.yaml`, `argocd/ingress.yaml`, and `gitops/app/ingress.yaml` already on the branch that `var.argocd_gitops_revision` points to. To test before merging (same pattern as ADR 007, decision 5):
 
 ```bash
 AWS_PROFILE=cloudlab terraform apply -var argocd_gitops_revision=feat/cloudfront-dns-tls
 ```
 
-### 3. VPC + EKS + S3 + IRSA da app + ArgoCD (pré-requisitos das fases anteriores)
+### 3. VPC + EKS + S3 + app IRSA + ArgoCD (prerequisites from previous phases)
 
-Ver [`docs/runbooks/validate/validate-argocd-gitops.md`](./validate-argocd-gitops.md) e [`docs/runbooks/validate/validate-transcoding.md`](./validate-transcoding.md).
+See [`docs/runbooks/validate/validate-argocd-gitops.md`](./validate-argocd-gitops.md) and [`docs/runbooks/validate/validate-transcoding.md`](./validate-transcoding.md).
 
-## Aplicar e rodar o teste
+## Apply and run the test
 
 ```bash
 cd terraform/envs/lab
 AWS_PROFILE=cloudlab terraform init -upgrade
 AWS_PROFILE=cloudlab terraform validate
-AWS_PROFILE=cloudlab terraform plan     # revisar: 3 IRSA roles, CloudFront, 3 Applications novas, edits em argocd.tf
+AWS_PROFILE=cloudlab terraform plan     # review: 3 IRSA roles, CloudFront, 3 new Applications, edits in argocd.tf
 AWS_PROFILE=cloudlab terraform apply
 
 AWS_PROFILE=cloudlab ./scripts/validate-cloudfront-dns-tls.sh
 ```
 
-Dependências no seu ambiente: `aws` CLI, `jq`, `terraform`, `kubectl`, `curl`, `dig`, `openssl`, `ffmpeg`.
+Dependencies in your environment: `aws` CLI, `jq`, `terraform`, `kubectl`, `curl`, `dig`, `openssl`, `ffmpeg`.
 
-⚠️ **Se o `apply` falhar em `data.aws_lb.app_shared` ("no matching load balancer found")**: sintoma esperado num ambiente novo — a ALB só existe depois que o aws-load-balancer-controller reconcilia `gitops/app/ingress.yaml`, o que só acontece depois que `helm_release.argocd_apps` (mesma run) dispara a sincronização. Mesma classe do fallback em duas etapas já documentado no ADR 007 (decisão 8):
+⚠️ **If the `apply` fails on `data.aws_lb.app_shared` ("no matching load balancer found")**: this is an expected symptom in a fresh environment — the ALB only exists after the aws-load-balancer-controller reconciles `gitops/app/ingress.yaml`, which only happens after `helm_release.argocd_apps` (same run) triggers the sync. Same class of two-stage fallback already documented in ADR 007 (decision 8):
 
 ```bash
-# Aguardar a ALB aparecer (1-2 min após o primeiro apply bem-sucedido do restante)
+# Wait for the ALB to show up (1-2 min after the rest of the first apply succeeds)
 watch -n 10 'aws elbv2 describe-load-balancers --names minitube-app --profile cloudlab --region us-east-1 --query "LoadBalancers[0].State.Code" --output text'
 
-# Reaplicar assim que o estado acima for "active"
+# Reapply as soon as the state above is "active"
 AWS_PROFILE=cloudlab terraform apply
 ```
 
-## Como funciona o script de validação
+## How the validation script works
 
-- **Kubeconfig efêmero**, mesmo padrão dos scripts anteriores.
-- **Checagens executadas, em ordem:**
-  1. `app.<domínio>` resolve via resolvedor público (até 5 min — propagação de DNS pode ter cache mesmo com o registro já correto no Route53).
-  2. A distribution CloudFront atinge `Deployed` (até 10 min — é o passo mais lento de um `apply` novo).
-  3. `ClusterIssuer letsencrypt-route53` atinge `Ready` — prova que a IRSA role e o RBAC do cert-manager funcionam ponta a ponta, mesmo sem nenhum `Certificate` real emitido ainda nesta fase.
-  4. O `aws-load-balancer-controller` provisiona a ALB compartilhada (Ingress `api` ganha `.status.loadBalancer.ingress[0].hostname`).
-  5. `argocd.<domínio>` resolve — prova que o `external-dns` está de fato criando registros a partir do Ingress do ArgoCD.
-  6. A UI do ArgoCD responde via `https://argocd.<domínio>`, TLS válido, direto na ALB (sem CloudFront na frente).
-  7. **Checagem central:** garante que existe HLS real no S3 (reaproveita o mesmo vídeo sintético de `validate-transcoding.sh` se `hls/` estiver vazio) e confirma que `https://app.<domínio>/hls/<video_id>/playlist.m3u8` responde `200`, carrega um header `X-Cache` do CloudFront (Hit ou Miss — qualquer um prova que passou pelo CDN) e apresenta uma cadeia TLS emitida pela Amazon (ACM).
-- **Cleanup garantido:** `trap cleanup EXIT` mata o port-forward eventualmente aberto para o upload sintético e remove arquivos temporários — nenhum recurso de nuvem é criado só para este teste (ao contrário do smoke test de VPC/EC2), então não há necessidade de destruir nada além do kubeconfig efêmero.
+- **Ephemeral kubeconfig**, same pattern as previous scripts.
+- **Checks performed, in order:**
+  1. `app.<domain>` resolves via a public resolver (up to 5 min — DNS propagation can be cached even with the record already correct in Route53).
+  2. The CloudFront distribution reaches `Deployed` (up to 10 min — the slowest step of a fresh `apply`).
+  3. `ClusterIssuer letsencrypt-route53` reaches `Ready` — proves the IRSA role and cert-manager's RBAC work end to end, even with no real `Certificate` issued yet at this phase.
+  4. The `aws-load-balancer-controller` provisions the shared ALB (Ingress `api` gets `.status.loadBalancer.ingress[0].hostname`).
+  5. `argocd.<domain>` resolves — proves `external-dns` is actually creating records from ArgoCD's Ingress.
+  6. The ArgoCD UI responds via `https://argocd.<domain>`, valid TLS, straight off the ALB (no CloudFront in front).
+  7. **Central check:** ensures real HLS exists in S3 (reuses the same synthetic video from `validate-transcoding.sh` if `hls/` is empty) and confirms that `https://app.<domain>/hls/<video_id>/playlist.m3u8` responds `200`, carries an `X-Cache` header from CloudFront (Hit or Miss — either one proves it passed through the CDN), and presents a TLS chain issued by Amazon (ACM).
+- **Guaranteed cleanup:** `trap cleanup EXIT` kills the port-forward eventually opened for the synthetic upload and removes temporary files — no cloud resource is created just for this test (unlike the VPC/EC2 smoke test), so there's no need to destroy anything beyond the ephemeral kubeconfig.
 
-## Leitura esperada do output
+## Expected output
 
 ```
 PASS: app.minitube.projetodevops.com.br resolves via a public resolver (up to 300s)
@@ -94,56 +94,56 @@ PASS: TLS certificate chain for app.minitube.projetodevops.com.br is issued by A
 === All checks passed: app.minitube.projetodevops.com.br serves real HLS content via CloudFront over valid HTTPS, and argocd.minitube.projetodevops.com.br is reachable straight off the shared ALB. ===
 ```
 
-Código de saída `0` quando tudo passa, `1` se qualquer checagem falhar. A primeira execução após um `apply` novo tende a ser a mais lenta (emissão/propagação do CloudFront, principalmente); reruns subsequentes no mesmo ambiente devem passar rapidamente em quase todas as checagens.
+Exit code `0` when everything passes, `1` if any check fails. The first run after a fresh `apply` tends to be the slowest (mainly CloudFront issuance/propagation); subsequent reruns in the same environment should pass quickly on almost every check.
 
-## Destruir tudo ao final do teste
+## Destroy everything at the end of the test
 
 ```bash
 cd terraform/envs/lab
-AWS_PROFILE=cloudlab terraform plan -destroy   # revisar: remove CloudFront, IRSA de plataforma, Applications, junto com VPC/EKS/S3/IRSA(app)/ArgoCD — tudo
+AWS_PROFILE=cloudlab terraform plan -destroy   # review: removes CloudFront, platform IRSA, Applications, along with VPC/EKS/S3/IRSA(app)/ArgoCD — everything
 AWS_PROFILE=cloudlab terraform destroy
 ```
 
-⚠️ **Risco conhecido (ADR 008, decisão 15): a ALB compartilhada pode ficar órfã.** As Applications do ArgoCD não têm o finalizer `resources-finalizer.argocd.argoproj.io`, então o `aws-load-balancer-controller` pode ser destruído (junto do node group) antes de conseguir deletar a ALB que provisionou — o `destroy` trava com `DependencyViolation` nas subnets/IGW. Se isso acontecer:
+⚠️ **Known risk (ADR 008, decision 15): the shared ALB may end up orphaned.** ArgoCD's Applications don't have the `resources-finalizer.argocd.argoproj.io` finalizer, so the aws-load-balancer-controller may be destroyed (along with the node group) before it manages to delete the ALB it provisioned — the `destroy` hangs with `DependencyViolation` on the subnets/IGW. If this happens:
 
 ```bash
-# 1. Deletar a ALB órfã manualmente
+# 1. Manually delete the orphaned ALB
 aws elbv2 delete-load-balancer --load-balancer-arn "$(aws elbv2 describe-load-balancers --names minitube-app --query 'LoadBalancers[0].LoadBalancerArn' --output text)"
 
-# 2. Se o namespace argocd ficar preso em Terminating (finalizers do LBC no
-#    Ingress/TargetGroupBinding, sem controller vivo para removê-los):
+# 2. If the argocd namespace gets stuck in Terminating (LBC finalizers on the
+#    Ingress/TargetGroupBinding, with no controller alive to remove them):
 kubectl delete validatingwebhookconfigurations aws-load-balancer-webhook
 kubectl delete mutatingwebhookconfigurations aws-load-balancer-webhook
 kubectl patch ingress argocd-server -n argocd --type=merge -p '{"metadata":{"finalizers":[]}}'
 kubectl patch targetgroupbindings.elbv2.k8s.aws -n argocd --all --type=merge -p '{"metadata":{"finalizers":[]}}'
 
-# 3. Se a exclusão da VPC travar em DeleteVpc (security groups do LBC órfãs):
+# 3. If VPC deletion hangs on DeleteVpc (orphaned LBC security groups):
 aws ec2 describe-security-groups --filters "Name=group-name,Values=k8s-*" --query "SecurityGroups[].GroupId" --output text
-# para cada GroupId retornado:
+# for each returned GroupId:
 aws ec2 delete-security-group --group-id <id>
 
-# 4. Reaplicar o destroy normalmente
+# 4. Reapply the destroy normally
 AWS_PROFILE=cloudlab terraform destroy
 ```
 
-`terraform/bootstrap/` (state, ECR, **agora também a zona Route 53 e o certificado ACM**) e `terraform/bootstrap-iam/` (roles, permission set, budget alert, **incluindo o novo grant `ManagePlatformIrsaRoles`**) **não** são destruídos — persistem entre sessões. Confirmar que não sobrou nada cobrável:
+`terraform/bootstrap/` (state, ECR, **now also the Route 53 zone and the ACM certificate**) and `terraform/bootstrap-iam/` (roles, permission set, budget alert, **including the new `ManagePlatformIrsaRoles` grant**) are **not** destroyed — they persist between sessions. Confirm nothing billable is left:
 
 ```bash
 aws eks list-clusters --profile cloudlab --region us-east-1
 aws ec2 describe-vpcs --profile cloudlab --region us-east-1 --filters "Name=tag:Name,Values=minitube-lab"
 aws ec2 describe-nat-gateways --profile cloudlab --region us-east-1 --filter "Name=state,Values=available"
 aws cloudfront list-distributions --profile cloudlab --query "DistributionList.Items[].Id"
-aws elbv2 describe-load-balancers --profile cloudlab --region us-east-1 --names minitube-app   # deve retornar erro "not found" após o destroy
+aws elbv2 describe-load-balancers --profile cloudlab --region us-east-1 --names minitube-app   # should return a "not found" error after the destroy
 ```
 
-A zona Route 53 e o certificado ACM (persistentes, `terraform/bootstrap/`) continuam de pé — isso é esperado e intencional, ver ADR 008.
+The Route 53 zone and the ACM certificate (persistent, `terraform/bootstrap/`) remain standing — this is expected and intentional, see ADR 008.
 
-## Segurança / rollback
+## Security / rollback
 
-Se o script for interrompido de forma anômala (`kill -9`) durante o upload sintético do vídeo, o port-forward pode ficar órfão:
+If the script is interrupted abnormally (`kill -9`) during the synthetic video upload, the port-forward may be left orphaned:
 
 ```bash
 pkill -f "port-forward svc/api" || true
 ```
 
-Inofensivo mesmo se rodado sem necessidade. Nenhum outro estado precisa de reversão manual — este script não introduz drift proposital no cluster (ao contrário de `validate-argocd.sh`).
+Harmless even if run unnecessarily. No other state needs manual reversion — this script does not introduce deliberate drift into the cluster (unlike `validate-argocd.sh`).

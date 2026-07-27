@@ -1,40 +1,40 @@
-# Runbook — Validação funcional do budget alert
+# Runbook — Budget alert functional validation
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/005-budget-alert-persistence.md`](../../adr/005-budget-alert-persistence.md).
+> Establishes the "functional validation post-apply" standard described in [`docs/engineering-standards.md`](../../engineering-standards.md#11-post-apply-functional-validation). See also [`docs/adr/005-budget-alert-persistence.md`](../../adr/005-budget-alert-persistence.md).
 
-## Por que isso existe
+## Why this exists
 
-`terraform apply` sem erro e `aws budgets describe-budgets` mostrando o recurso criado provam que o budget **existe com os atributos esperados** — não provam que ele **notifica corretamente**. A pergunta que importa: o limite mensal está certo, e as duas notificações (80% projetado, 100% real) estão configuradas com o e-mail certo?
+`terraform apply` without error and `aws budgets describe-budgets` showing the created resource prove that the budget **exists with the expected attributes** — they do not prove that it **notifies correctly**. The question that matters: is the monthly limit correct, and are the two notifications (80% forecasted, 100% actual) configured with the right email?
 
-## Limitação conhecida: não dá para forçar o disparo real do alerta
+## Known limitation: the real alert firing cannot be forced
 
-A AWS Budgets recalcula gasto real e projetado **no seu próprio schedule** (não instantaneamente após `apply` ou mudança de configuração — tipicamente algumas horas). Não existe um comando para forçar essa reavaliação sob demanda. Por isso, `scripts/validate-budget.sh` valida **configuração** via API (`describe-budgets`, `describe-notifications-for-budget`, `describe-subscribers-for-notification`), não o disparo real do e-mail de alerta. Confirmar que o alerta realmente dispara só é possível organicamente: observar a caixa de entrada (`alisson.cloudlab@gmail.com`) ao longo do uso normal da conta, quando o gasto de fato cruzar 80%/100% do limite.
+AWS Budgets recalculates actual and forecasted spend **on its own schedule** (not instantly after `apply` or a configuration change — typically a few hours). There is no command to force this reevaluation on demand. Because of this, `scripts/validate-budget.sh` validates **configuration** via the API (`describe-budgets`, `describe-notifications-for-budget`, `describe-subscribers-for-notification`), not the actual firing of the alert email. Confirming that the alert really fires is only possible organically: watching the inbox (`alisson.cloudlab@gmail.com`) during normal account usage, when spend actually crosses 80%/100% of the limit.
 
-## Como funciona o script
+## How the script works
 
-- **Checagens executadas:**
-  1. O budget (`minitube-monthly-cost-alert`) existe na conta.
-  2. O limite é `10 USD`/`MONTHLY` (valor lido de `var.budget_limit_usd`).
-  3. A notificação `FORECASTED` em 80% (`GREATER_THAN`) está configurada.
-  4. A notificação `ACTUAL` em 100% (`GREATER_THAN`) está configurada.
-  5. O e-mail assinante (`alisson.cloudlab@gmail.com`) está de fato na lista de subscribers da notificação de 100%.
-- Não cria nem destrói nenhum recurso — só leitura via `aws budgets describe-*`, então não precisa de `trap` de cleanup.
+- **Checks performed:**
+  1. The budget (`minitube-monthly-cost-alert`) exists in the account.
+  2. The limit is `10 USD`/`MONTHLY` (value read from `var.budget_limit_usd`).
+  3. The `FORECASTED` notification at 80% (`GREATER_THAN`) is configured.
+  4. The `ACTUAL` notification at 100% (`GREATER_THAN`) is configured.
+  5. The subscriber email (`alisson.cloudlab@gmail.com`) is actually on the subscriber list for the 100% notification.
+- Creates and destroys no resources — read-only via `aws budgets describe-*`, so it needs no cleanup `trap`.
 
-## Aplicar e rodar o teste
+## Apply and run the test
 
 ```bash
-# Sessão root/CloudShell — bootstrap-iam é admin-only (ver ADR 002/003)
+# Root/CloudShell session — bootstrap-iam is admin-only (see ADR 002/003)
 cd terraform/bootstrap-iam
 terraform init
-terraform plan     # revisar: 1 recurso novo (aws_budgets_budget), nada mais muda
+terraform plan     # review: 1 new resource (aws_budgets_budget), nothing else changes
 terraform apply
 
 ./scripts/validate-budget.sh
 ```
 
-Dependências: `aws` CLI, `jq`, `terraform`.
+Dependencies: `aws` CLI, `jq`, `terraform`.
 
-## Leitura esperada do output
+## Expected output
 
 ```
 PASS: budget 'minitube-monthly-cost-alert' exists in account 479213212405
@@ -48,12 +48,12 @@ on its own schedule (not instantly), so a real alert firing can only be
 confirmed organically over time -- see docs/runbooks/validate/validate-budget-alert.md.
 ```
 
-Código de saída `0` quando tudo passa, `1` se qualquer checagem falhar.
+Exit code `0` when everything passes, `1` if any check fails.
 
-## Alterar o limite ou o e-mail
+## Changing the limit or the email
 
-Editar `budget_limit_usd`/`budget_notification_email` em `terraform/bootstrap-iam/variables.tf` (ou passar via `-var`), depois repetir o fluxo `plan` → `apply` → `validate-budget.sh` acima, sempre via CloudShell/sessão root.
+Edit `budget_limit_usd`/`budget_notification_email` in `terraform/bootstrap-iam/variables.tf` (or pass via `-var`), then repeat the `plan` → `apply` → `validate-budget.sh` flow above, always via CloudShell/root session.
 
-## Persistência
+## Persistence
 
-O budget alert **não** é destruído entre sessões — vive em `terraform/bootstrap-iam/`, junto com as roles IAM e o permission set do operador, fora do ciclo efêmero de `terraform/envs/lab/` (ver ADR 005). Nenhuma ação é necessária ao encerrar uma sessão de teste de VPC/EKS.
+The budget alert is **not** destroyed between sessions — it lives in `terraform/bootstrap-iam/`, alongside the IAM roles and the operator permission set, outside the ephemeral cycle of `terraform/envs/lab/` (see ADR 005). No action is needed when ending a VPC/EKS test session.

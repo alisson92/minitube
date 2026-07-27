@@ -1,33 +1,33 @@
-# Runbook — Validação funcional do ArgoCD e do fluxo GitOps
+# Runbook — ArgoCD and GitOps flow functional validation
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/007-argocd-gitops-bootstrap.md`](../../adr/007-argocd-gitops-bootstrap.md).
+> Establishes the "functional validation post-apply" standard described in [`docs/engineering-standards.md`](../../engineering-standards.md#11-post-apply-functional-validation). See also [`docs/adr/007-argocd-gitops-bootstrap.md`](../../adr/007-argocd-gitops-bootstrap.md).
 
-## Por que isso existe
+## Why this exists
 
-`helm_release.argocd` sem erro e os pods `Running` no namespace `argocd` provam que o ArgoCD **existe** — não provam que ele está de fato reconciliando `gitops/` a partir do Git. A pergunta que importa: se alguém divergir o cluster manualmente (drift), o ArgoCD corrige sozinho, sem qualquer `kubectl apply`? Essa é a prova real dos princípios OpenGitOps de "aplicado por pull" e "reconciliado continuamente".
+`helm_release.argocd` without error and pods `Running` in the `argocd` namespace prove that ArgoCD **exists** — they do not prove it is actually reconciling `gitops/` from Git. The question that matters: if someone manually diverges the cluster (drift), does ArgoCD fix it on its own, without any `kubectl apply`? This is the real proof of the OpenGitOps principles of "applied by pull" and "continuously reconciled".
 
-Este runbook documenta `terraform/envs/lab/scripts/validate-argocd.sh`, que confirma os componentes do ArgoCD, o status `Synced`/`Healthy` das duas Applications raiz, que a API responde de verdade, e — a checagem central — que um drift manual introduzido no cluster é revertido sozinho pelo `selfHeal`.
+This runbook documents `terraform/envs/lab/scripts/validate-argocd.sh`, which confirms ArgoCD's components, the `Synced`/`Healthy` status of the two root Applications, that the API really responds, and — the central check — that a manual drift introduced into the cluster is reverted on its own by `selfHeal`.
 
-## Pré-requisitos
+## Prerequisites
 
-### 1. Deploy key SSH somente-leitura para o ArgoCD ler o repositório privado
+### 1. Read-only SSH deploy key for ArgoCD to read the private repository
 
-O repositório `alisson92/minitube` é privado — o ArgoCD precisa de credencial própria (não herda sua chave SSH local). **Desde a Fase 4 (ADR 008), este é um setup único** — a chave privada persiste em `aws_ssm_parameter.argocd_repo_ssh_private_key` (`terraform/bootstrap/ssm.tf`), lida por `envs/lab` via `data source` em toda sessão, sem precisar ser regenerada ou reexportada a cada `apply`. Só repita os passos abaixo se o parâmetro SSM ainda não existir (primeiro setup do projeto) ou se a chave precisar ser rotacionada por algum motivo.
+The `alisson92/minitube` repository is private — ArgoCD needs its own credential (it doesn't inherit your local SSH key). **Since Phase 4 (ADR 008), this is a one-time setup** — the private key persists in `aws_ssm_parameter.argocd_repo_ssh_private_key` (`terraform/bootstrap/ssm.tf`), read by `envs/lab` via a `data source` every session, without needing to be regenerated or re-exported on every `apply`. Only repeat the steps below if the SSM parameter doesn't exist yet (first project setup) or if the key needs to be rotated for some reason.
 
 ```bash
-# 1. Gerar o par de chaves fora do repositório (usar um diretório temporário)
+# 1. Generate the key pair outside the repository (use a temporary directory)
 ssh-keygen -t ed25519 -C "argocd-minitube-readonly" -f /tmp/argocd-minitube-deploy-key -N ""
 
-# 2. Cadastrar a chave PÚBLICA como Deploy Key somente-leitura
-#    (sem --allow-write ⇒ read-only por padrão)
+# 2. Register the PUBLIC key as a read-only Deploy Key
+#    (no --allow-write ⇒ read-only by default)
 gh repo deploy-key add /tmp/argocd-minitube-deploy-key.pub \
   --repo alisson92/minitube \
   --title "argocd-minitube-readonly"
 
-# 3. Gravar a chave PRIVADA no SSM Parameter Store, via um único apply de
-#    terraform/bootstrap/ (nunca em .tfvars, nunca commitada) -- depois
-#    deste apply, lifecycle.ignore_changes garante que ela nunca mais
-#    precisa ser passada de novo
+# 3. Write the PRIVATE key to SSM Parameter Store, via a single apply of
+#    terraform/bootstrap/ (never in .tfvars, never committed) -- after
+#    this apply, lifecycle.ignore_changes ensures it never needs to be
+#    passed again
 cd terraform/bootstrap
 AWS_PROFILE=cloudlab terraform apply \
   -var argocd_repo_ssh_private_key="$(cat /tmp/argocd-minitube-deploy-key)"
@@ -35,52 +35,52 @@ AWS_PROFILE=cloudlab terraform apply \
 rm -f /tmp/argocd-minitube-deploy-key /tmp/argocd-minitube-deploy-key.pub
 ```
 
-⚠️ Se o parâmetro SSM ainda não existir e você rodar `terraform apply` em `envs/lab` sem antes ter feito o passo 3 acima em `bootstrap/`, o `data "aws_ssm_parameter"` em `envs/lab/argocd.tf` falha com "parameter not found" — a ordem importa, `bootstrap/` primeiro.
+⚠️ If the SSM parameter doesn't exist yet and you run `terraform apply` in `envs/lab` without first having done step 3 above in `bootstrap/`, the `data "aws_ssm_parameter"` in `envs/lab/argocd.tf` fails with "parameter not found" — the order matters, `bootstrap/` first.
 
-### 2. VPC + EKS + bucket S3 + IRSA + acesso ao cluster (mesmo pré-requisito das fases anteriores)
+### 2. VPC + EKS + S3 bucket + IRSA + cluster access (same prerequisite as previous phases)
 
-Ver [`docs/runbooks/validate/validate-eks-cluster.md`](./validate-eks-cluster.md) e [`docs/runbooks/validate/validate-transcoding.md`](./validate-transcoding.md) — nada muda aqui, o ArgoCD só é adicionado ao mesmo `terraform apply` de `envs/lab`.
+See [`docs/runbooks/validate/validate-eks-cluster.md`](./validate-eks-cluster.md) and [`docs/runbooks/validate/validate-transcoding.md`](./validate-transcoding.md) — nothing changes here, ArgoCD is just added to the same `terraform apply` of `envs/lab`.
 
-## Aplicar o ArgoCD e rodar o teste
+## Apply ArgoCD and run the test
 
 ```bash
 cd terraform/envs/lab
-terraform init -upgrade     # baixa os providers kubernetes/helm novos (versions.tf)
+terraform init -upgrade     # downloads the new kubernetes/helm providers (versions.tf)
 AWS_PROFILE=cloudlab terraform validate
-AWS_PROFILE=cloudlab terraform plan     # revisar: (VPC+EKS se recriando) + namespace argocd + secret de repo + 2 helm_release + output novo
+AWS_PROFILE=cloudlab terraform plan     # review: (VPC+EKS if recreating) + argocd namespace + repo secret + 2 helm_release + new output
 AWS_PROFILE=cloudlab terraform apply
 
 AWS_PROFILE=cloudlab ./scripts/validate-argocd.sh
 ```
 
-Dependências no seu ambiente: `aws` CLI, `jq`, `terraform`, `kubectl`, `curl`, `gh`.
+Dependencies in your environment: `aws` CLI, `jq`, `terraform`, `kubectl`, `curl`, `gh`.
 
-⚠️ **Se o `apply` falhar no `helm_release.argocd` com erro de conexão** (`connection refused` / `context deadline exceeded`) **logo depois de criar um cluster totalmente novo**: é um sintoma conhecido de o control plane ainda não estar 100% pronto para os providers `kubernetes`/`helm` no mesmo apply em que o cluster nasceu. Como este projeto recria o cluster do zero em toda sessão, esse é o cenário mais comum, não a exceção. Fallback com `-target` em duas etapas:
+⚠️ **If the `apply` fails on `helm_release.argocd` with a connection error** (`connection refused` / `context deadline exceeded`) **right after creating a brand-new cluster**: this is a known symptom of the control plane not yet being 100% ready for the `kubernetes`/`helm` providers within the same apply that created the cluster. Since this project recreates the cluster from scratch every session, this is the most common scenario, not the exception. Fallback with `-target` in two stages:
 
 ```bash
 AWS_PROFILE=cloudlab terraform apply -target=module.eks
 
-AWS_PROFILE=cloudlab terraform plan     # deve mostrar só o restante: S3, IRSA, namespace argocd, helm_releases
+AWS_PROFILE=cloudlab terraform plan     # should show only the rest: S3, IRSA, argocd namespace, helm_releases
 AWS_PROFILE=cloudlab terraform apply
 ```
 
-> `-target=module.eks` sobe o cluster, o node group e o OIDC provider (todos dentro de `terraform/modules/eks/`, ver [ADR 013](../../adr/013-terraform-vpc-eks-modules.md)) numa única etapa — targeting um módulo inteiro aplica todos os recursos dentro dele.
+> `-target=module.eks` brings up the cluster, the node group, and the OIDC provider (all inside `terraform/modules/eks/`, see [ADR 013](../../adr/013-terraform-vpc-eks-modules.md)) in a single stage — targeting an entire module applies every resource within it.
 
-## Como acessar a UI do ArgoCD
+## How to access the ArgoCD UI
 
-Desde a Fase 4, o ArgoCD tem Ingress/DNS/TLS próprios — ver [`docs/runbooks/access-argocd-ui.md`](../access-argocd-ui.md) (URL real e senha via `terraform output`, não mais port-forward nem `argocd-initial-admin-secret`, que deixou de ser criado desde que a senha passou a ser pré-semeada).
+Since Phase 4, ArgoCD has its own Ingress/DNS/TLS — see [`docs/runbooks/access-argocd-ui.md`](../access-argocd-ui.md) (real URL and password via `terraform output`, no longer port-forward nor `argocd-initial-admin-secret`, which stopped being created once the password started being pre-seeded).
 
-## Como funciona o script de validação
+## How the validation script works
 
-- **Kubeconfig efêmero**: gerado via `aws eks update-kubeconfig` num arquivo temporário, sem escrever no `~/.kube/config` do operador.
-- **Checagens executadas:**
-  1. `argocd-server` e `argocd-repo-server` atingem `Available`; `argocd-application-controller` tem pelo menos 1 réplica `Ready`.
-  2. As duas Applications raiz (`app`, `platform`) atingem `Synced` — `app` também precisa de `Healthy`; `platform` aceita health vazio, já que sincroniza 0 recursos nesta fase (ver `gitops/platform/README.md`).
-  3. `Deployment/api` existe, carrega a annotation `argocd.argoproj.io/tracking-id` (prova de que foi o ArgoCD que criou o recurso, não um `kubectl apply` manual rodado à parte), e a API responde `/api/healthz` via port-forward.
-  4. **Checagem central — drift e selfHeal:** o script roda `kubectl scale deployment/api --replicas=2` (uma divergência manual proposital, nunca feita via Git) e faz *poll* até o ArgoCD reverter sozinho para `replicas: 1` (o que `gitops/app/deployment.yaml` declara), com timeout de 120s.
-- **Cleanup garantido:** `trap cleanup EXIT` mata o `port-forward` e, se o teste de drift tiver sido iniciado mas não confirmado revertido, força o `scale --replicas=1` de volta antes de sair — o cluster nunca fica divergido do Git por causa do próprio teste.
+- **Ephemeral kubeconfig**: generated via `aws eks update-kubeconfig` in a temporary file, without writing to the operator's `~/.kube/config`.
+- **Checks performed:**
+  1. `argocd-server` and `argocd-repo-server` reach `Available`; `argocd-application-controller` has at least 1 `Ready` replica.
+  2. The two root Applications (`app`, `platform`) reach `Synced` — `app` also needs `Healthy`; `platform` accepts an empty health status, since it syncs 0 resources at this phase (see `gitops/platform/README.md`).
+  3. `Deployment/api` exists, carries the `argocd.argoproj.io/tracking-id` annotation (proof that ArgoCD created the resource, not a manual `kubectl apply` run separately), and the API responds at `/api/healthz` via port-forward.
+  4. **Central check — drift and selfHeal:** the script runs `kubectl scale deployment/api --replicas=2` (a deliberate manual divergence, never done via Git) and polls until ArgoCD reverts it on its own back to `replicas: 1` (what `gitops/app/deployment.yaml` declares), with a 120s timeout.
+- **Guaranteed cleanup:** `trap cleanup EXIT` kills the `port-forward` and, if the drift test was started but not confirmed reverted, forces the `scale --replicas=1` back before exiting — the cluster never stays diverged from Git because of the test itself.
 
-## Leitura esperada do output
+## Expected output
 
 ```
 PASS: argocd-application-controller has at least 1 ready replica
@@ -96,17 +96,17 @@ PASS: ArgoCD selfHeal reverted the drift back to 1 replica in ~10s, with no manu
 === All checks passed: ArgoCD is installed, both root Applications are synced from Git, and selfHeal reconciles drift without any kubectl apply. ===
 ```
 
-Código de saída `0` quando tudo passa, `1` se qualquer checagem falhar. O tempo exato de reversão do drift varia com o intervalo de reconciliação do ArgoCD (por padrão, poucos segundos a até ~3 minutos).
+Exit code `0` when everything passes, `1` if any check fails. The exact drift-reversion time varies with ArgoCD's reconciliation interval (by default, a few seconds up to ~3 minutes).
 
-## Destruir tudo ao final do teste
+## Destroy everything at the end of the test
 
 ```bash
 cd terraform/envs/lab
-AWS_PROFILE=cloudlab terraform plan -destroy   # revisar: remove ArgoCD e as Applications junto com VPC/EKS/S3/IRSA — tudo
+AWS_PROFILE=cloudlab terraform plan -destroy   # review: removes ArgoCD and the Applications along with VPC/EKS/S3/IRSA — everything
 AWS_PROFILE=cloudlab terraform destroy
 ```
 
-`terraform/bootstrap/` (ECR) e `terraform/bootstrap-iam/` (roles, permission set, budget alert) **não** são destruídos — persistem entre sessões, sem custo relevante. Confirmar que não sobrou nada cobrável:
+`terraform/bootstrap/` (ECR) and `terraform/bootstrap-iam/` (roles, permission set, budget alert) are **not** destroyed — they persist between sessions, with no relevant cost. Confirm nothing billable is left:
 
 ```bash
 aws eks list-clusters --profile cloudlab --region us-east-1
@@ -114,11 +114,11 @@ aws ec2 describe-vpcs --profile cloudlab --region us-east-1 --filters "Name=tag:
 aws ec2 describe-nat-gateways --profile cloudlab --region us-east-1 --filter "Name=state,Values=available"
 ```
 
-A deploy key cadastrada no GitHub (`argocd-minitube-readonly`) também não precisa ser removida entre sessões — é somente-leitura e escopada a este repo; remover é opcional (`gh repo deploy-key delete <id> --repo alisson92/minitube`), mas não é uma preocupação de custo ou segurança que justifique automação agora.
+The deploy key registered on GitHub (`argocd-minitube-readonly`) also doesn't need to be removed between sessions — it's read-only and scoped to this repo; removing it is optional (`gh repo deploy-key delete <id> --repo alisson92/minitube`), but it's not a cost or security concern that justifies automating it now.
 
-## Segurança / rollback
+## Security / rollback
 
-Se o script for interrompido de forma anômala (`kill -9`) no meio da checagem de drift e o `trap` não rodar, reverter manualmente:
+If the script is interrupted abnormally (`kill -9`) in the middle of the drift check and the `trap` doesn't run, revert manually:
 
 ```bash
 aws eks update-kubeconfig --region us-east-1 --name minitube-lab --profile cloudlab --kubeconfig /tmp/minitube-kubeconfig
@@ -126,4 +126,4 @@ kubectl --kubeconfig /tmp/minitube-kubeconfig -n minitube-app scale deployment/a
 rm -f /tmp/minitube-kubeconfig
 ```
 
-Isso é inofensivo mesmo se rodado sem necessidade — o ArgoCD já teria revertido o drift por conta própria; o comando só adianta a correção.
+This is harmless even if run unnecessarily — ArgoCD would have already reverted the drift on its own; the command just speeds up the correction.

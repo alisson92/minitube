@@ -1,49 +1,49 @@
-# Runbook: baseline de carga k6 (Fase 6)
+# Runbook: k6 load baseline (Phase 6)
 
-## O quê
+## What
 
-`load/run-baseline.sh` roda o **primeiro** teste de carga da Fase 6 (`load/k6/baseline.js`) contra o ambiente **exatamente como ele está hoje**: API com 1 réplica fixa (`gitops/app/deployment.yaml`), node group do EKS fixo em 3/3/3 (`terraform/envs/lab/variables.tf`), sem HPA e sem Cluster Autoscaler/Karpenter.
+`load/run-baseline.sh` runs the **first** load test of Phase 6 (`load/k6/baseline.js`) against the environment **exactly as it stands today**: API with 1 fixed replica (`gitops/app/deployment.yaml`), EKS node group fixed at 3/3/3 (`terraform/envs/lab/variables.tf`), no HPA and no Cluster Autoscaler/Karpenter.
 
-O script sobe uma carga pequena e crescente (k6 `ramping-vus`, ~9 minutos) em dois cenários paralelos, espelhando os dois fluxos da arquitetura descritos no `CLAUDE.md`:
+The script ramps up a small, growing load (k6 `ramping-vus`, ~9 minutes) across two parallel scenarios, mirroring the two flows of the architecture described in `CLAUDE.md`:
 
-- **`viewers`** — simula a "onda de torcida" de verdade: requisições repetidas para a playlist HLS e os segmentos de um vídeo já transcodificado, via CloudFront. A imensa maioria dessas requisições deve morrer no CDN.
-- **`api_dynamic`** — um volume bem menor de tráfego dinâmico direto na API (`/api/healthz`, `/api/videos/{id}`) via ALB → EKS — a única réplica sem autoscaling ainda, candidata mais provável a saturar primeiro.
+- **`viewers`** — simulates the real "crowd wave": repeated requests for the HLS playlist and segments of an already-transcoded video, via CloudFront. The vast majority of these requests should terminate at the CDN.
+- **`api_dynamic`** — a much smaller volume of dynamic traffic hitting the API directly (`/api/healthz`, `/api/videos/{id}`) via ALB → EKS — the single replica without autoscaling yet, the most likely candidate to saturate first.
 
-## Por quê
+## Why
 
-Este é deliberadamente o **primeiro** teste da fase, antes de qualquer mitigação (HPA, Cluster Autoscaler, ajuste do SLO em `slo-rules.yaml`). Adicionar uma mitigação antes de ter dado real seria uma aposta, não uma decisão embasada — ver a seção "Sequência lógica" combinada com o operador nesta fase. O resultado deste script é o que decide:
+This is deliberately the **first** test of the phase, before any mitigation (HPA, Cluster Autoscaler, adjusting the SLO in `slo-rules.yaml`). Adding a mitigation before having real data would be a bet, not an informed decision — see the "logical sequence" section agreed with the operator for this phase. The result of this script decides:
 
-1. Se o gargalo é de **pod** (CPU/memória do único réplica da API) ou de **node group** (capacidade do cluster) — determina se a resposta é HPA (barato) ou Cluster Autoscaler/Karpenter (mais caro).
-2. Se o threshold de 500ms em `slo-rules.yaml` (na época, um valor arbitrário) era realista, frouxo ou apertado demais — resultado: era bem frouxo, revisado depois com todo o dado desta fase para `APILatencyWarning` (250ms) + `APILatencyCritical` (800ms).
+1. Whether the bottleneck is at the **pod** level (CPU/memory of the API's single replica) or the **node group** level (cluster capacity) — this determines whether the answer is HPA (cheap) or Cluster Autoscaler/Karpenter (more expensive).
+2. Whether the 500ms threshold in `slo-rules.yaml` (an arbitrary value at the time) was realistic, too loose, or too tight — result: it was quite loose, later revised with all the data from this phase to `APILatencyWarning` (250ms) + `APILatencyCritical` (800ms).
 
-Upload/transcodificação em massa **não** faz parte deste baseline — subir vários Jobs de transcodificação concorrentes é um cenário de estresse separado e mais pesado, não uma carga pequena/crescente.
+Bulk upload/transcoding is **not** part of this baseline — spinning up several concurrent transcoding Jobs is a separate, heavier stress scenario, not a small/growing load.
 
-## Como
+## How
 
 ```bash
 AWS_PROFILE=cloudlab ./load/run-baseline.sh
 ```
 
-Pré-requisitos: `k6`, `aws`, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg` no PATH; `terraform apply` já rodou em `terraform/envs/lab` e o ArgoCD já sincronizou `gitops/app/` (ver `docs/runbooks/validate/validate-transcoding.md`).
+Prerequisites: `k6`, `aws`, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg` in the PATH; `terraform apply` already ran in `terraform/envs/lab` and ArgoCD already synced `gitops/app/` (see `docs/runbooks/validate/validate-transcoding.md`).
 
-O script:
+The script:
 
-1. Lê os outputs do Terraform (`app_url`, nome do bucket, nome do cluster).
-2. Procura um vídeo já transcodificado no S3 (`hls/*/playlist.m3u8`); se não encontrar, sobe um vídeo sintético via `POST /api/videos` e espera o Job de transcodificação terminar — mesmo padrão já usado em `validate-transcoding.sh`/`validate-cloudfront-dns-tls.sh`.
-3. Roda `k6 run load/k6/baseline.js` contra a URL pública (`app.<domínio>`), com o `video_id` encontrado/gerado.
+1. Reads the Terraform outputs (`app_url`, bucket name, cluster name).
+2. Looks for an already-transcoded video in S3 (`hls/*/playlist.m3u8`); if none is found, it uploads a synthetic video via `POST /api/videos` and waits for the transcoding Job to finish — the same pattern already used in `validate-transcoding.sh`/`validate-cloudfront-dns-tls.sh`.
+3. Runs `k6 run load/k6/baseline.js` against the public URL (`app.<domain>`), with the found/generated `video_id`.
 
-## Como ler o resultado
+## How to read the result
 
-O sumário do k6 ao final mostra, por `endpoint` (tag `playlist`, `segment`, `api`):
+The k6 summary at the end shows, per `endpoint` (tag `playlist`, `segment`, `api`):
 
-- **`http_req_failed`** — taxa de erro. O threshold configurado (`rate<0.01`) falha o `k6 run` (exit code ≠ 0) se mais de 1% das requisições falharem em qualquer cenário — esse é o sinal mais direto de "algo quebrou".
-- **`http_req_duration` p95** — comparar contra os limiares de `slo-rules.yaml` (`APILatencyWarning` 250ms, `APILatencyCritical` 800ms). Se `endpoint:api` estourar consistentemente antes de `endpoint:playlist`/`endpoint:segment`, é evidência de que o gargalo é o pod da API, não o CDN/origem — a favor de HPA como primeira mitigação.
-- Cruzar o horário do teste com os dashboards da Fase 5 no Grafana (saturação de CPU/memória do pod `api`, saturação dos nós) para confirmar se o gargalo foi de pod ou de node group antes de decidir a mitigação.
+- **`http_req_failed`** — error rate. The configured threshold (`rate<0.01`) fails `k6 run` (exit code ≠ 0) if more than 1% of requests fail in any scenario — this is the most direct signal that "something broke".
+- **`http_req_duration` p95** — compare against the thresholds in `slo-rules.yaml` (`APILatencyWarning` 250ms, `APILatencyCritical` 800ms). If `endpoint:api` consistently breaches before `endpoint:playlist`/`endpoint:segment`, it's evidence that the bottleneck is the API pod, not the CDN/origin — in favor of HPA as the first mitigation.
+- Cross-reference the test time with the Phase 5 dashboards in Grafana (CPU/memory saturation of the `api` pod, node saturation) to confirm whether the bottleneck was pod- or node-group-level before deciding on a mitigation.
 
-Este teste **não se autolimpa como os `validate-*.sh`** no sentido de destruir infraestrutura — ele só lê/gera tráfego HTTP e, na ausência de vídeo existente, cria um vídeo de teste real no S3 (que passa a contar como "vídeo já transcodificado" nas execuções seguintes). Nenhum recurso do Terraform é criado ou destruído por este script.
+This test **does not self-clean like the `validate-*.sh` scripts** in the sense of destroying infrastructure — it only reads/generates HTTP traffic and, absent an existing video, creates a real test video in S3 (which then counts as an "already-transcoded video" for subsequent runs). No Terraform resource is created or destroyed by this script.
 
-## Resultado validado (2026-07-24)
+## Validated result (2026-07-24)
 
-Rodado contra a infra real (1 réplica da API, node group 3/3/3, sem HPA): **0% de erro** em 8733 requisições, thresholds todos verdes com folga confortável — p95 de 186ms (`api`), 120ms (`playlist`) e 184ms (`segment`), todos bem abaixo dos 500ms do `slo-rules.yaml`. Pico de carga: só 60 VUs (50 `viewers` + 10 `api_dynamic`), ~20 req/s no total.
+Run against the real infra (1 API replica, node group 3/3/3, no HPA): **0% error rate** across 8733 requests, all thresholds green with comfortable headroom — p95 of 186ms (`api`), 120ms (`playlist`) and 184ms (`segment`), all well below the 500ms in `slo-rules.yaml`. Peak load: only 60 VUs (50 `viewers` + 10 `api_dynamic`), ~20 req/s total.
 
-**Isso não significa que a arquitetura não quebra sob carga — significa que este baseline é pequeno demais para descobrir onde.** A API roda `uvicorn` sem `--workers` (`app/api/Dockerfile`) — um único processo, sob limite de `500m` de CPU — mas o cenário `api_dynamic` nunca gerou volume suficiente para chegar perto desse teto (10 VUs com 2-5s de sleep entre iterações = poucas requisições/segundo reais contra o pod). `viewers` bate em CloudFront/S3, que não tem motivo pra sentir 50 VUs. Baseline **confirmado estável sob carga leve**; permanece registrado como está, sem escalar — para achar o ponto real de quebra, use `docs/runbooks/load/run-k6-breakpoint.md`.
+**This does not mean the architecture doesn't break under load — it means this baseline is too small to find out where.** The API runs `uvicorn` without `--workers` (`app/api/Dockerfile`) — a single process, under a `500m` CPU limit — but the `api_dynamic` scenario never generated enough volume to get close to that ceiling (10 VUs with 2-5s sleep between iterations = few actual requests/second against the pod). `viewers` hits CloudFront/S3, which has no reason to feel 50 VUs. Baseline **confirmed stable under light load**; it remains recorded as-is, without scaling up — to find the real breaking point, use `docs/runbooks/load/run-k6-breakpoint.md`.

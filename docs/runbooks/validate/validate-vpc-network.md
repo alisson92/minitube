@@ -1,54 +1,54 @@
-# Runbook — Validação funcional da rede da VPC (lab)
+# Runbook — VPC network functional validation (lab)
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply).
+> Establishes the "functional validation post-apply" standard described in [`docs/engineering-standards.md`](../../engineering-standards.md#11-post-apply-functional-validation).
 
-## Por que isso existe
+## Why this exists
 
-`terraform apply` sem erro e `aws ec2 describe-*` mostrando os atributos certos provam que os recursos **existem com a configuração esperada** — não provam que eles **funcionam**. Para a VPC do lab, a pergunta que importa é: uma carga de trabalho numa subnet privada realmente consegue sair para a internet através do NAT Gateway? Ler a route table não responde isso; só exercitar o caminho de rede responde.
+`terraform apply` without error and `aws ec2 describe-*` showing the right attributes prove that the resources **exist with the expected configuration** — they do not prove that they **work**. For the lab VPC, the question that matters is: can a workload in a private subnet actually reach the internet through the NAT Gateway? Reading the route table doesn't answer that; only exercising the network path does.
 
-Este runbook documenta o script `terraform/envs/lab/scripts/validate-network.sh`, que sobe uma instância EC2 efêmera na subnet privada, testa o caminho de rede de dentro dela, e sempre a termina ao final — nunca fica como infraestrutura permanente.
+This runbook documents the `terraform/envs/lab/scripts/validate-network.sh` script, which spins up an ephemeral EC2 instance in the private subnet, tests the network path from inside it, and always terminates it at the end — it never remains as permanent infrastructure.
 
-## Como funciona
+## How it works
 
-- **Acesso via SSM Session Manager**, não SSH: a instância não tem IP público, chave, nem Security Group de entrada. O agente SSM se conecta de dentro para fora, então **o próprio registro da instância no SSM já é um primeiro teste de egress** — se o NAT não funcionar, a instância nunca aparece `Online`.
-- **AMI resolvida dinamicamente** via parâmetro público do SSM (`/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64`), sem hardcodar um AMI ID que expira.
-- **Checagens executadas:**
-  1. IP privado atribuído está dentro do CIDR da subnet (sanity check via API do EC2, não precisa de SSM).
-  2. Instância registra no SSM como `Online` (prova indireta de egress).
-  3. `curl` para `https://checkip.amazonaws.com` de dentro da instância (prova direta: o NAT traduz e roteia tráfego de saída).
-  4. Resolução de DNS público (`getent hosts amazon.com`).
-- **Cleanup garantido:** `trap cleanup EXIT` chama `aws ec2 terminate-instances` mesmo se o script falhar ou for interrompido (`Ctrl+C`).
+- **Access via SSM Session Manager**, not SSH: the instance has no public IP, no key, and no inbound Security Group. The SSM agent connects from the inside out, so **the instance's own registration with SSM is already a first egress test** — if the NAT doesn't work, the instance never shows up as `Online`.
+- **AMI resolved dynamically** via a public SSM parameter (`/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64`), without hardcoding an AMI ID that expires.
+- **Checks performed:**
+  1. The assigned private IP falls within the subnet's CIDR (sanity check via the EC2 API, doesn't need SSM).
+  2. The instance registers in SSM as `Online` (indirect proof of egress).
+  3. `curl` to `https://checkip.amazonaws.com` from inside the instance (direct proof: the NAT translates and routes outbound traffic).
+  4. Public DNS resolution (`getent hosts amazon.com`).
+- **Guaranteed cleanup:** `trap cleanup EXIT` calls `aws ec2 terminate-instances` even if the script fails or is interrupted (`Ctrl+C`).
 
-## Pré-requisito: role de smoke test
+## Prerequisite: smoke test role
 
-O script precisa de uma instance profile (`minitube-network-smoke-test`) para a EC2 assumir a role de SSM. O `cloudlab-operator` (`PowerUserAccess`) **não pode criar recursos IAM** — só ler e `PassRole`. Por isso essa role vive em `terraform/bootstrap-iam/` (módulo admin-only) e precisa ser aplicada uma vez via CloudShell/root, seguindo o mesmo fluxo de [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](../bootstrap/aws-account-bootstrap.md).
+The script needs an instance profile (`minitube-network-smoke-test`) for the EC2 instance to assume the SSM role. The `cloudlab-operator` (`PowerUserAccess`) **cannot create IAM resources** — only read them and `PassRole`. Because of this, that role lives in `terraform/bootstrap-iam/` (admin-only module) and needs to be applied once via CloudShell/root, following the same flow as [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](../bootstrap/aws-account-bootstrap.md).
 
 ```bash
-# Sessão root/CloudShell, uma única vez (a role persiste entre sessões, sem custo)
+# Root/CloudShell session, one time only (the role persists between sessions, at no cost)
 cd terraform/bootstrap-iam
 terraform init
 terraform plan
 terraform apply
 ```
 
-Verificar que a role existe antes de rodar o script:
+Verify the role exists before running the script:
 
 ```bash
 aws iam get-instance-profile --instance-profile-name minitube-network-smoke-test --profile cloudlab
 ```
 
-⚠️ Sem essa role aplicada, `terraform plan`/`apply` em `terraform/envs/lab/` falha ao resolver o `data "aws_iam_instance_profile"` em `ssm.tf`.
+⚠️ Without this role applied, `terraform plan`/`apply` in `terraform/envs/lab/` fails while resolving the `data "aws_iam_instance_profile"` in `ssm.tf`.
 
-## Executar o teste
+## Run the test
 
 ```bash
 cd terraform/envs/lab
 AWS_PROFILE=cloudlab ./scripts/validate-network.sh
 ```
 
-Dependências no seu ambiente: `aws` CLI, `jq`, `terraform`, `python3` (usado só para a checagem de IP-dentro-do-CIDR).
+Dependencies in your environment: `aws` CLI, `jq`, `terraform`, `python3` (used only for the IP-within-CIDR check).
 
-## Leitura esperada do output
+## Expected output
 
 ```
 PASS: private IP 10.0.16.x is within subnet CIDR 10.0.16.0/20
@@ -58,11 +58,11 @@ PASS: public DNS resolution
 === All checks passed: private subnet has real internet egress via the NAT Gateway. ===
 ```
 
-Código de saída `0` quando tudo passa, `1` se qualquer checagem falhar (a mensagem de erro específica aparece antes da linha final).
+Exit code `0` when everything passes, `1` if any check fails (the specific error message appears before the final line).
 
-## Segurança / rollback
+## Security / rollback
 
-O script sempre termina a instância de teste via `trap`, mesmo em caso de erro. Se o script for encerrado de forma anômala (ex. `kill -9`, painel travado) e a instância sobrar:
+The script always terminates the test instance via `trap`, even on error. If the script is terminated abnormally (e.g. `kill -9`, a frozen panel) and the instance is left behind:
 
 ```bash
 aws ec2 describe-instances --profile cloudlab \
@@ -72,4 +72,4 @@ aws ec2 describe-instances --profile cloudlab \
 aws ec2 terminate-instances --profile cloudlab --instance-ids <instance-id>
 ```
 
-A role/instance profile em si não tem custo e não precisa ser destruída entre sessões — é reutilizável por futuros scripts de validação (EKS, etc.).
+The role/instance profile itself has no cost and does not need to be destroyed between sessions — it's reusable by future validation scripts (EKS, etc.).

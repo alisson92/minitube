@@ -1,180 +1,180 @@
-# Runbook: teste de breakpoint k6 (Fase 6)
+# Runbook: k6 breakpoint test (Phase 6)
 
-## O quê
+## What
 
-`load/run-breakpoint.sh` roda `load/k6/breakpoint.js` — um teste de **breakpoint**, categoria oficialmente documentada pelo próprio k6 (distinta de load/soak/spike testing): escalar carga deliberadamente até o sistema quebrar de verdade, em vez de validar que ele aguenta um número fixo. Complementa `load/run-baseline.sh` (carga pequena e fixa, já validada estável — ver `docs/runbooks/load/run-k6-baseline.md`), sem substituí-lo: o baseline permanece registrado como está, este é um teste novo e separado.
+`load/run-breakpoint.sh` runs `load/k6/breakpoint.js` — a **breakpoint** test, a category officially documented by k6 itself (distinct from load/soak/spike testing): deliberately scaling load until the system actually breaks, instead of validating that it holds up under a fixed number. It complements `load/run-baseline.sh` (small, fixed load, already validated stable — see `docs/runbooks/load/run-k6-baseline.md`), without replacing it: the baseline remains recorded as-is, this is a new, separate test.
 
-O alvo é o caminho da API (`/api/healthz`, `/api/videos/{id}` via ALB → EKS) — a única réplica sem HPA, candidata mais provável a quebrar primeiro (ver o resultado do baseline: `uvicorn` sem `--workers`, limite de `500m` CPU, nunca estressado de verdade). O tráfego de `viewers` (CloudFront/S3) entra só como um fundo constante e pequeno (10 VUs), não como alvo — CDN/S3 não é o que este teste tenta quebrar.
+The target is the API path (`/api/healthz`, `/api/videos/{id}` via ALB → EKS) — the single replica with no HPA, the most likely candidate to break first (see the baseline result: `uvicorn` without `--workers`, `500m` CPU limit, never truly stressed). `viewers` traffic (CloudFront/S3) is included only as a small, constant background (10 VUs), not as a target — CDN/S3 is not what this test is trying to break.
 
-## Por quê
+## Why
 
-Diferença central em relação ao baseline: **modelo aberto, não fechado**. `load/k6/baseline.js` usa `ramping-vus` (modelo fechado) — cada VU só faz a próxima requisição depois que a anterior responde, então se o sistema desacelerar, a demanda real cai junto (a fila fica invisível). `load/k6/breakpoint.js` usa `ramping-arrival-rate` (modelo aberto) — dispara requisições numa taxa alvo (req/s) independente do tempo de resposta, então filas e erros aparecem de verdade nas métricas quando o sistema não consegue acompanhar. É a recomendação oficial do k6 para este tipo de teste.
+Central difference from the baseline: **open model, not closed**. `load/k6/baseline.js` uses `ramping-vus` (closed model) — each VU only makes its next request after the previous one responds, so if the system slows down, actual demand drops along with it (the queue stays invisible). `load/k6/breakpoint.js` uses `ramping-arrival-rate` (open model) — it fires requests at a target rate (req/s) regardless of response time, so queues and errors really show up in the metrics when the system can't keep up. This is k6's official recommendation for this type of test.
 
-Os thresholds aqui **não** protegem um SLO — eles existem só para detectar quebra e abortar (`abortOnFail`, `delayAbortEval: 10s`) assim que:
-- `http_req_failed` passa de 5% (bem mais tolerante que o `<1%` do baseline — aqui queremos deixar degradar até doer, não até o primeiro soluço).
-- `http_req_duration{endpoint:api}` p95 passa de 1s.
+The thresholds here **do not** protect an SLO — they exist only to detect breakage and abort (`abortOnFail`, `delayAbortEval: 10s`) as soon as:
+- `http_req_failed` exceeds 5% (much more tolerant than the baseline's `<1%` — here we want to let it degrade until it hurts, not until the first hiccup).
+- `http_req_duration{endpoint:api}` p95 exceeds 1s.
 
-Sem `abortOnFail`, o teste rodaria a duração toda cegamente contra um alvo já quebrado, desperdiçando tempo e possivelmente piorando um incidente real em andamento.
+Without `abortOnFail`, the test would run its full duration blindly against an already-broken target, wasting time and possibly worsening a real incident in progress.
 
-## Como
+## How
 
 ```bash
 AWS_PROFILE=cloudlab ./load/run-breakpoint.sh
 ```
 
-Escalar o teto entre execuções (sem editar código):
+Scale the ceiling between runs (without editing code):
 
 ```bash
 PEAK_RATE=800 AWS_PROFILE=cloudlab ./load/run-breakpoint.sh
 ```
 
-`PEAK_RATE` (default `400` req/s) é o topo da rampa de 6 estágios (~17 min): `5% → 12,5% → 25% → 50% → 100% → 100%` do valor de `PEAK_RATE`, sustentado nos últimos 5 minutos. `preAllocatedVUs`/`maxVUs` escalam junto automaticamente.
+`PEAK_RATE` (default `400` req/s) is the top of the 6-stage ramp (~17 min): `5% → 12.5% → 25% → 50% → 100% → 100%` of the `PEAK_RATE` value, sustained for the last 5 minutes. `preAllocatedVUs`/`maxVUs` scale up automatically along with it.
 
-Pré-requisitos: os mesmos do baseline (`k6`, `aws`, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg` no PATH; `terraform apply` já rodou; ArgoCD sincronizado). O script reaproveita a mesma lógica de "achar ou criar vídeo de teste" (`load/lib/find-or-create-video.sh`), compartilhada com `run-baseline.sh`.
+Prerequisites: the same as the baseline (`k6`, `aws`, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg` in the PATH; `terraform apply` already ran; ArgoCD synced). The script reuses the same "find or create test video" logic (`load/lib/find-or-create-video.sh`), shared with `run-baseline.sh`.
 
-## Como ler o resultado
+## How to read the result
 
-- **Abortou antes do fim (`abortOnFail`)?** Achamos o ponto de quebra — o k6 imprime em qual estágio/instante o threshold estourou. Esse é o dado que faltava para decidir entre HPA e Cluster Autoscaler/Karpenter (cruzar com os dashboards da Fase 5: saturação de CPU do pod `api` vs. saturação dos nós no momento exato do abort).
-- **Completou os ~17 minutos sem abortar?** O sistema aguentou até `PEAK_RATE` req/s. Não é o teto real ainda — reexecute com `PEAK_RATE` maior (dobrar é um passo razoável: 400 → 800 → 1600...) até encontrar a quebra.
-- Cruzar sempre com Grafana/Prometheus no horário exato do teste, não só com o sumário do k6 — o k6 mostra o sintoma do lado do cliente, o dashboard mostra a causa (CPU, memória, throttling, réplicas).
+- **Aborted before the end (`abortOnFail`)?** We found the breaking point — k6 prints at which stage/instant the threshold was breached. This is the data that was missing to decide between HPA and Cluster Autoscaler/Karpenter (cross-reference with the Phase 5 dashboards: CPU saturation of the `api` pod vs. node saturation at the exact moment of the abort).
+- **Completed the ~17 minutes without aborting?** The system held up to `PEAK_RATE` req/s. That's not the real ceiling yet — rerun with a higher `PEAK_RATE` (doubling is a reasonable step: 400 → 800 → 1600...) until you find the breakage.
+- Always cross-reference with Grafana/Prometheus at the exact test time, not just the k6 summary — k6 shows the client-side symptom, the dashboard shows the cause (CPU, memory, throttling, replicas).
 
-Mesma observação do baseline: este script não se autolimpa como os `validate-*.sh` no sentido de destruir infraestrutura — só gera tráfego HTTP e, se preciso, cria um vídeo de teste real no S3.
+Same note as the baseline: this script does not self-clean like the `validate-*.sh` scripts in the sense of destroying infrastructure — it only generates HTTP traffic and, if needed, creates a real test video in S3.
 
-## Depois de achar o ponto de quebra
+## After finding the breaking point
 
-Este runbook só descobre onde quebra — a decisão de qual mitigação aplicar (HPA vs. Cluster Autoscaler/Karpenter) e o ajuste do threshold de 500ms em `slo-rules.yaml` continuam sendo os próximos passos combinados com o operador, não parte deste script.
+This runbook only discovers where the breakage happens — the decision on which mitigation to apply (HPA vs. Cluster Autoscaler/Karpenter) and adjusting the 500ms threshold in `slo-rules.yaml` remain the next steps agreed with the operator, not part of this script.
 
-## Resultado da execução (2026-07-24) — abortou cedo, mas não por capacidade
+## Run result (2026-07-24) — aborted early, but not due to capacity
 
-Executado com `PEAK_RATE=400` (default) contra a infra real, na retomada da sessão após uma queda de energia (ambiente conferido íntegro antes de rodar: sessão SSO válida, `terraform plan` sem drift, cluster/node group `ACTIVE`, as 9 Applications do ArgoCD `Synced`/`Healthy`).
+Run with `PEAK_RATE=400` (default) against the real infra, resuming the session after a power outage (environment checked healthy before running: valid SSO session, `terraform plan` with no drift, cluster/node group `ACTIVE`, all 9 ArgoCD Applications `Synced`/`Healthy`).
 
-O `k6 run` abortou (`abortOnFail`) em ~82s — ainda no primeiro estágio da rampa (~14 VUs, ~85 req/s de pico, **9% do primeiro degrau de 5% do `PEAK_RATE`**). Isso por si só já é o primeiro sinal de que não foi a API nem o node group que saturaram: a carga nunca chegou perto de qualquer teto de capacidade.
+`k6 run` aborted (`abortOnFail`) at ~82s — still in the first stage of the ramp (~14 VUs, ~85 req/s peak, **9% of the first 5% step of `PEAK_RATE`**). This alone is already the first sign that neither the API nor the node group had saturated: the load never got close to any capacity ceiling.
 
-**Causa raiz confirmada: não é de capacidade, é um bug de correção exposto pelo teste.** `GET /api/videos/{video_id}` (`app/api/jobs.py::get_job_status`) usa o `batch/v1 Job` do Kubernetes como única fonte de verdade sobre o vídeo. Esse Job é criado com `ttl_seconds_after_finished=3600` — passada essa 1h após a conclusão, o próprio Kubernetes coleta o objeto (`kubectl get job transcode-<id>` → `NotFound`, confirmado após o teste). O vídeo reaproveitado pelo `load/lib/find-or-create-video.sh` (`4228cdfc6c57409ebe8fd6100a5ac7cb`, o mesmo do baseline, rodado horas antes) já estava fora dessa janela: os segmentos HLS seguem 100% válidos e serviveis no S3/CloudFront (os checks `playlist status is 200` e `segment status is 200` deram 100% de sucesso), mas o Job já não existe — então `get_job_status` devolve `"not_found"` e a API responde `404` para `/api/videos/{id}`. Isso não é uma falha sob carga: é um 404 legítimo (porém incorreto) que aconteceria do mesmo jeito com um único usuário, a qualquer hora depois de 1h da transcodificação.
+**Root cause confirmed: not a capacity issue, it's a correctness bug exposed by the test.** `GET /api/videos/{video_id}` (`app/api/jobs.py::get_job_status`) uses the Kubernetes `batch/v1 Job` as the sole source of truth about the video. That Job is created with `ttl_seconds_after_finished=3600` — after that 1h following completion, Kubernetes itself garbage-collects the object (`kubectl get job transcode-<id>` → `NotFound`, confirmed after the test). The video reused by `load/lib/find-or-create-video.sh` (`4228cdfc6c57409ebe8fd6100a5ac7cb`, the same one from the baseline, run hours earlier) was already outside that window: the HLS segments remain 100% valid and servable from S3/CloudFront (the `playlist status is 200` and `segment status is 200` checks passed 100%), but the Job no longer exists — so `get_job_status` returns `"not_found"` and the API responds `404` for `/api/videos/{id}`. This isn't a failure under load: it's a legitimate (but incorrect) 404 that would happen the same way with a single user, at any time more than 1h after transcoding.
 
-Evidência nos logs do pod `api` (`kubectl logs -n minitube-app deploy/api --since-time=...`, janela exata do teste): 100% dos `GET /api/healthz` → `200`; 100% dos `GET /api/videos/4228cdfc6c57409ebe8fd6100a5ac7cb` → `404`. `http_req_duration{endpoint:api}` p95 = 176.89ms — nem perto do threshold de 1s — reforçando que a resposta foi errada e rápida, não lenta/saturada. Motivo pelo qual o baseline (rodado antes, contra o mesmo vídeo ainda "fresco") não bateu nisso: correu dentro da janela de 1h do TTL do Job.
+Evidence in the `api` pod logs (`kubectl logs -n minitube-app deploy/api --since-time=...`, exact test window): 100% of `GET /api/healthz` → `200`; 100% of `GET /api/videos/4228cdfc6c57409ebe8fd6100a5ac7cb` → `404`. `http_req_duration{endpoint:api}` p95 = 176.89ms — nowhere near the 1s threshold — reinforcing that the response was wrong and fast, not slow/saturated. Reason the baseline (run earlier, against the same still-"fresh" video) didn't hit this: it ran within the Job's 1h TTL window.
 
-**Causa raiz de segunda ordem, no próprio script de teste:** `load/lib/find-or-create-video.sh` só confere se existe `hls/*/playlist.m3u8` no S3 — nunca confere se o Job correspondente ainda existe no cluster. Funciona para achar "um vídeo já transcodificado" mas não garante que `GET /api/videos/{id}` vá responder `200` para ele.
+**Second-order root cause, in the test script itself:** `load/lib/find-or-create-video.sh` only checks whether `hls/*/playlist.m3u8` exists in S3 — it never checks whether the corresponding Job still exists in the cluster. It works for finding "an already-transcoded video" but doesn't guarantee that `GET /api/videos/{id}` will respond `200` for it.
 
-**Conclusão: este run não encontrou o ponto de quebra de capacidade — encontrou que o teste, do jeito que está, é inválido contra um vídeo reaproveitado com mais de 1h.** Nenhuma mitigação (HPA, Cluster Autoscaler) foi decidida ou aplicada a partir deste resultado; não há dado de capacidade real ainda.
+**Conclusion: this run did not find the capacity breaking point — it found that the test, as it stands, is invalid against a video reused after more than 1h.** No mitigation (HPA, Cluster Autoscaler) was decided or applied based on this result; there is still no real capacity data.
 
-### Pendências em aberto (decisão do operador) — resolvidas na sessão seguinte
+### Open items (operator decision) — resolved in the following session
 
-1. ~~**Bug real na API**~~ — corrigido: `get_job_status` (`app/api/jobs.py`) agora cai para `s3_client.hls_playlist_exists()` (novo helper, `head_object` em `hls/<id>/playlist.m3u8`) quando o Job não é encontrado, em vez de responder `not_found` direto. O S3 passa a ser a fonte de verdade durável; o Job segue sendo a fonte de verdade só enquanto ainda existe (para distinguir `running`/`failed`). Publicado em `minitube-api:v0.1.4`.
-2. ~~**Teste de breakpoint pendente**~~ — reexecutado após o fix. Ver seção abaixo.
+1. ~~**Real bug in the API**~~ — fixed: `get_job_status` (`app/api/jobs.py`) now falls back to `s3_client.hls_playlist_exists()` (new helper, `head_object` on `hls/<id>/playlist.m3u8`) when the Job is not found, instead of responding `not_found` directly. S3 becomes the durable source of truth; the Job remains the source of truth only while it still exists (to distinguish `running`/`failed`). Published as `minitube-api:v0.1.4`.
+2. ~~**Breakpoint test pending**~~ — rerun after the fix. See section below.
 
-## Resultado da execução (2026-07-24, pós-fix) — achado real de capacidade, não é CPU/memória
+## Run result (2026-07-24, post-fix) — real capacity finding, not CPU/memory
 
-Reexecutado com `PEAK_RATE=400` (default) contra a infra real, imagem `minitube-api:v0.1.4` (com o fix do TTL do Job) publicada via GitOps — ArgoCD apontado temporariamente para a branch `feat/k6-baseline-scenario` (`terraform apply -var argocd_gitops_revision=...`, mesmo padrão do ADR 007 decisão 5), Application `app` `Synced`/`Healthy` na revisão do commit do fix. Validado isoladamente **antes** do k6: `GET /api/videos/4228cdfc6c57409ebe8fd6100a5ac7cb` (o mesmo vídeo "velho" que antes dava 404) voltou a responder `200`/`succeeded`.
+Rerun with `PEAK_RATE=400` (default) against the real infra, image `minitube-api:v0.1.4` (with the Job TTL fix) published via GitOps — ArgoCD temporarily pointed at the `feat/k6-baseline-scenario` branch (`terraform apply -var argocd_gitops_revision=...`, same pattern as ADR 007 decision 5), Application `app` `Synced`/`Healthy` at the fix commit's revision. Validated in isolation **before** k6: `GET /api/videos/4228cdfc6c57409ebe8fd6100a5ac7cb` (the same "old" video that previously returned 404) went back to responding `200`/`succeeded`.
 
-O `k6 run` abortou de novo (`abortOnFail`), desta vez em ~91s — ainda cedo (só ~22-24 VUs, ~63 req/s), mas **por um motivo genuinamente diferente**:
+`k6 run` aborted again (`abortOnFail`), this time at ~91s — still early (only ~22-24 VUs, ~63 req/s), but **for a genuinely different reason**:
 
-- `http_req_failed`: **0.00%** (5724 de 5724 requisições bem-sucedidas) — `video status is 200` agora passa 100%, confirmando que o fix eliminou o bug do TTL.
-- `http_req_duration{endpoint:api}`: `p(95)=1s` — estourou o threshold (`p(95)<1000`), com `max=7.54s`. Latência, não erro, é o que abortou o teste desta vez.
+- `http_req_failed`: **0.00%** (5724 of 5724 requests successful) — `video status is 200` now passes 100%, confirming the fix eliminated the TTL bug.
+- `http_req_duration{endpoint:api}`: `p(95)=1s` — breached the threshold (`p(95)<1000`), with `max=7.54s`. Latency, not errors, is what aborted the test this time.
 
-**Descartei capacidade de pod/node como causa antes de concluir qualquer coisa** — cruzei o horário exato do teste (20:44:19–20:46:00 UTC) com o Prometheus (`kube-prometheus-stack`, Fase 5) via `container_cpu_usage_seconds_total`/`container_memory_working_set_bytes` do pod `api`:
-- CPU: pico de **~0.083 cores** (8,3% do limite de `500m`).
-- Memória: pico de **~102 MB** (40% do limite de `256Mi`).
+**I ruled out pod/node capacity as the cause before concluding anything** — I cross-referenced the exact test time (20:44:19–20:46:00 UTC) with Prometheus (`kube-prometheus-stack`, Phase 5) via `container_cpu_usage_seconds_total`/`container_memory_working_set_bytes` for the `api` pod:
+- CPU: peak of **~0.083 cores** (8.3% of the `500m` limit).
+- Memory: peak of **~102 MB** (40% of the `256Mi` limit).
 
-Ou seja, **o pod nunca chegou perto de saturar CPU ou memória** enquanto a latência já tinha estourado o SLO de 1s — a resposta para a pergunta original do baseline ("o gargalo é de pod ou de node group?") é **nenhum dos dois**. O node group (folga confirmada na Fase 5, 3× `t3.medium`) nem chegou a ser avaliado a fundo porque o próprio pod já descartava a hipótese de recurso.
+In other words, **the pod never got close to saturating CPU or memory** while latency had already breached the 1s SLO — the answer to the baseline's original question ("is the bottleneck at the pod or node-group level?") is **neither**. The node group (headroom confirmed in Phase 5, 3× `t3.medium`) wasn't even thoroughly assessed because the pod itself already ruled out the resource hypothesis.
 
-`argocd_gitops_revision` revertido para `main` (default) ao final desta validação — o override era só para testar o fix antes do merge, não um estado permanente.
+`argocd_gitops_revision` reverted to `main` (default) at the end of this validation — the override was only to test the fix before merging, not a permanent state.
 
-## Investigação da latência (2026-07-24) — a hipótese de pool de conexão foi descartada por evidência
+## Latency investigation (2026-07-24) — the connection-pool hypothesis was ruled out by evidence
 
-A primeira hipótese registrada aqui ("`uvicorn` sem `--workers`, chamadas bloqueantes ao K8s/S3 em sequência, pool de conexão do `boto3`/cliente k8s") **foi refutada por dados**, antes de qualquer código ser alterado em cima dela. Duas fontes independentes, na janela exata do teste (20:44:19–20:46:05 UTC), mostram que o processamento dentro da API nunca foi lento:
+The first hypothesis recorded here ("`uvicorn` without `--workers`, sequential blocking calls to K8s/S3, `boto3`/k8s client connection pool") **was refuted by data**, before any code was changed based on it. Two independent sources, in the exact test window (20:44:19–20:46:05 UTC), show that processing inside the API was never slow:
 
-- **`http_request_duration_seconds`** (métrica do próprio `prometheus-fastapi-instrumentator`, via Prometheus): das 842 requisições a `/api/videos/{video_id}` na janela, **100% completaram em ≤ 0,5s** (99,6% em ≤ 0,1s). Zero requisições internas passaram de 1s — as duas chamadas síncronas (K8s API + fallback S3) nunca demoraram o que o k6 mediu.
-- **`TargetResponseTime`** (CloudWatch, `AWS/ApplicationELB` — métrica da própria AWS, não nossa): p95 ≤ 37ms, p99 ≤ 84ms, **máximo absoluto de 145ms** em qualquer janela de 30s do teste.
+- **`http_request_duration_seconds`** (a metric from `prometheus-fastapi-instrumentator` itself, via Prometheus): of the 842 requests to `/api/videos/{video_id}` in the window, **100% completed in ≤ 0.5s** (99.6% in ≤ 0.1s). Zero internal requests exceeded 1s — the two synchronous calls (K8s API + S3 fallback) never took as long as k6 measured.
+- **`TargetResponseTime`** (CloudWatch, `AWS/ApplicationELB` — AWS's own metric, not ours): p95 ≤ 37ms, p99 ≤ 84ms, **absolute maximum of 145ms** in any 30s window of the test.
 
-Ou seja: nem o pod, nem o salto ALB→pod, chegam perto do que o k6 reportou (`p95=1s`, `max=7.54s`). A latência está sendo adicionada em algum lugar entre o cliente k6 (rodando localmente via WSL2, na máquina do operador) e o ALB.
+In other words: neither the pod nor the ALB→pod hop comes close to what k6 reported (`p95=1s`, `max=7.54s`). The latency is being added somewhere between the k6 client (running locally via WSL2, on the operator's machine) and the ALB.
 
-**Quatro testes diferenciais curtos (90s cada), isolando uma variável de cada vez, todos via CloudFront, contra o mesmo vídeo:**
+**Four short (90s each) differential tests, isolating one variable at a time, all via CloudFront, against the same video:**
 
-| Teste | Configuração | Resultado |
+| Test | Configuration | Result |
 | ----- | ------------- | --------- |
-| 1 | Só `api`, taxa constante 20 req/s | p95=184ms, max=1.09s |
-| 2 | `viewers`(10 VUs) + `api` juntos, taxa constante | p95=193ms, max=945ms |
-| 3 | Só `api`, `ramping-arrival-rate` (5→20 em 90s) | p95=184ms, max=1.41s |
-| 4 | `viewers`(10 VUs) + `api` com `ramping-arrival-rate`, **mesmo dimensionamento exato do breakpoint real** (`preAllocatedVUs=100`, `maxVUs=800`) | p95=191ms, max=978ms |
+| 1 | `api` only, constant rate 20 req/s | p95=184ms, max=1.09s |
+| 2 | `viewers`(10 VUs) + `api` together, constant rate | p95=193ms, max=945ms |
+| 3 | `api` only, `ramping-arrival-rate` (5→20 over 90s) | p95=184ms, max=1.41s |
+| 4 | `viewers`(10 VUs) + `api` with `ramping-arrival-rate`, **exact same sizing as the real breakpoint** (`preAllocatedVUs=100`, `maxVUs=800`) | p95=191ms, max=978ms |
 
-**Nenhuma das quatro reproduziu o problema** — nem a variante que replica exatamente os parâmetros do primeiro estágio do breakpoint real (teste 4). Isso descarta, com dado, as hipóteses de: taxa constante vs. rampa, cenários combinados vs. isolados, e tamanho do pool de VUs do k6.
+**None of the four reproduced the problem** — not even the variant that exactly replicates the parameters of the first stage of the real breakpoint (test 4). This rules out, with data, the hypotheses of: constant rate vs. ramp, combined vs. isolated scenarios, and the size of k6's VU pool.
 
-**Conclusão honesta:** o pico de latência (`max=7.54s` na execução pós-fix) não foi reproduzido de forma sistemática em nenhuma variação testada, apesar de replicar os parâmetros exatos do teste original. Combinado com a evidência de que ALB e pod estavam rápidos durante o próprio run que falhou, a explicação mais defensável é que o pico foi um **artefato transiente do caminho cliente→AWS** (rede local/WSL2/internet residencial do operador no momento exato daquelas duas execuções) — não uma propriedade determinística do MiniTube nem do desenho do teste k6. Chama atenção que os dois aborts reais aconteceram em instantes parecidos (~82s e ~91s) dentro da rampa, o que poderia sugerir algo determinístico, mas nenhuma tentativa de reprodução (incluindo uma cópia fiel dos parâmetros) confirmou isso.
+**Honest conclusion:** the latency spike (`max=7.54s` in the post-fix run) was not systematically reproduced in any tested variation, despite replicating the exact parameters of the original test. Combined with the evidence that the ALB and pod were fast during the very run that failed, the most defensible explanation is that the spike was a **transient artifact of the client→AWS path** (the operator's local network/WSL2/home internet at the exact moment of those two runs) — not a deterministic property of MiniTube nor of the k6 test design. It's notable that the two real aborts happened at similar instants (~82s and ~91s) within the ramp, which could suggest something deterministic, but no reproduction attempt (including a faithful copy of the parameters) confirmed that.
 
-**Implicação prática:** k6 rodando localmente (WSL2, rede residencial) não é um cliente confiável para medir o teto de capacidade real via HTTPS público neste nível de precisão — instabilidades do caminho cliente→AWS podem abortar o teste antes de qualquer saturação real do sistema acontecer. Para um sinal limpo, o gerador de carga precisaria rodar de dentro da AWS (ex.: uma instância EC2 pequena e efêmera na mesma VPC/região). **Confirmado na seção seguinte** — essa mudança de abordagem foi o que finalmente achou o breakpoint real.
+**Practical implication:** k6 running locally (WSL2, home network) is not a reliable client for measuring the real capacity ceiling via public HTTPS at this level of precision — instabilities in the client→AWS path can abort the test before any real saturation of the system happens. For a clean signal, the load generator would need to run from inside AWS (e.g., a small, ephemeral EC2 instance in the same VPC/region). **Confirmed in the following section** — this change of approach is what finally found the real breakpoint.
 
-HPA vs. Cluster Autoscaler/Karpenter **seguiu sem dado de capacidade real até a execução via EC2, abaixo** — nem o resultado do primeiro breakpoint pós-fix (latência do cliente, não do servidor) nem os testes diferenciais (nunca chegaram perto de estressar nada) respondiam isso.
+HPA vs. Cluster Autoscaler/Karpenter **remained without real capacity data until the EC2 run, below** — neither the result of the first post-fix breakpoint (client-side latency, not server-side) nor the differential tests (never came close to stressing anything) answered this.
 
-## Rodando o k6 de dentro da AWS (`run-breakpoint-from-ec2.sh`)
+## Running k6 from inside AWS (`run-breakpoint-from-ec2.sh`)
 
-Para eliminar de vez a variável "rede do cliente" da equação, `load/run-breakpoint-from-ec2.sh` roda o **mesmo** `load/k6/breakpoint.js`, mas o processo do k6 executa numa instância EC2 efêmera dentro da própria VPC do laboratório, não na máquina do operador.
+To eliminate the "client network" variable from the equation once and for all, `load/run-breakpoint-from-ec2.sh` runs the **same** `load/k6/breakpoint.js`, but the k6 process executes on an ephemeral EC2 instance inside the lab's own VPC, not on the operator's machine.
 
 ```bash
 AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh
-# Escalar o teto entre execuções, igual ao script local:
+# Scale the ceiling between runs, same as the local script:
 PEAK_RATE=800 AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh
 ```
 
-**Como funciona (reaproveita infraestrutura já existente, nenhuma mudança de Terraform):**
-- Mesmo padrão de `terraform/envs/lab/scripts/validate-network.sh`: instância `t3.small` (`INSTANCE_TYPE` sobrescrevível) na subnet privada, sem IP público, acessada só via **SSM Session Manager/Run Command** — sem SSH, sem bastion.
-- Mesma IAM instance profile do smoke test de rede (`smoke_test_instance_profile_name`, só `AmazonSSMManagedInstanceCore`) — o próprio comentário em `terraform/bootstrap-iam/main.tf` já previa reuso ("reusable across future validation scripts"), então nenhum recurso IAM novo foi criado.
-- O passo de achar/criar o vídeo de teste (`find_or_create_test_video`) continua rodando **localmente** (precisa de `kubectl`/AWS local) — só o `k6 run` em si roda na EC2. O binário do k6 (mesma versão usada localmente) é baixado do release oficial no GitHub; o conteúdo de `breakpoint.js` é enviado em base64 via SSM Run Command.
-- A instância é **sempre terminada ao final**, mesmo em caso de erro (`trap cleanup EXIT`), igual a todo `validate-*.sh` do projeto.
+**How it works (reuses existing infrastructure, no Terraform changes):**
+- Same pattern as `terraform/envs/lab/scripts/validate-network.sh`: a `t3.small` instance (`INSTANCE_TYPE` overridable) in the private subnet, no public IP, accessed only via **SSM Session Manager/Run Command** — no SSH, no bastion.
+- Same IAM instance profile as the network smoke test (`smoke_test_instance_profile_name`, only `AmazonSSMManagedInstanceCore`) — the comment itself in `terraform/bootstrap-iam/main.tf` already anticipated reuse ("reusable across future validation scripts"), so no new IAM resource was created.
+- The step of finding/creating the test video (`find_or_create_test_video`) still runs **locally** (needs local `kubectl`/AWS) — only the `k6 run` itself runs on the EC2 instance. The k6 binary (same version used locally) is downloaded from the official GitHub release; the contents of `breakpoint.js` are sent base64-encoded via SSM Run Command.
+- The instance is **always terminated at the end**, even on error (`trap cleanup EXIT`), same as every `validate-*.sh` script in the project.
 
-**Quando usar este script em vez do `run-breakpoint.sh` local:** sempre que o objetivo for medir capacidade real (o motivo desta seção existir) — o script local segue válido para testes rápidos/exploratórios onde ruído de rede do cliente não importa tanto (ex.: confirmar que um fix não quebrou nada, como na seção "pós-fix" acima).
+**When to use this script instead of the local `run-breakpoint.sh`:** whenever the goal is to measure real capacity (the reason this section exists) — the local script remains valid for quick/exploratory tests where client-side network noise doesn't matter much (e.g., confirming a fix didn't break anything, as in the "post-fix" section above).
 
-## Resultado da execução via EC2 (2026-07-25) — breakpoint real encontrado: CPU do pod, não de node
+## Run result via EC2 (2026-07-25) — real breakpoint found: pod CPU, not node
 
-Executado com `PEAK_RATE=400` (default), instância `t3.small` na subnet privada, mesmo vídeo (`4228cdfc6c57409ebe8fd6100a5ac7cb`). Desta vez o teste **rodou ~6m32s** (contra ~82-91s dos runs locais) antes de abortar — chegou a **367 VUs simultâneas** e 1.418.721 requisições totais antes do threshold de latência estourar de novo:
+Run with `PEAK_RATE=400` (default), `t3.small` instance in the private subnet, same video (`4228cdfc6c57409ebe8fd6100a5ac7cb`). This time the test **ran for ~6m32s** (versus ~82-91s for the local runs) before aborting — it reached **367 concurrent VUs** and 1,418,721 total requests before the latency threshold was breached again:
 
-- `http_req_failed`: **0,00%** — zero erros em toda a execução.
-- `http_req_duration{endpoint:api}`: `p(95)=1.19s`, `max=2.95s` — estourou o mesmo threshold (`p(95)<1000`) de antes, mas depois de muito mais carga sustentada.
+- `http_req_failed`: **0.00%** — zero errors in the entire run.
+- `http_req_duration{endpoint:api}`: `p(95)=1.19s`, `max=2.95s` — breached the same threshold (`p(95)<1000`) as before, but after much more sustained load.
 
-**Desta vez a lentidão é real e confirmada por três fontes independentes, na janela exata do teste (~00:21:58–00:28:30 UTC, via Prometheus):**
+**This time the slowdown is real and confirmed by three independent sources, in the exact test window (~00:21:58–00:28:30 UTC, via Prometheus):**
 
-1. **CPU do pod `api` sobe de forma constante e monotônica** ao longo de todo o teste — de ~0,15% em repouso até **~0,49 cores às 00:28:15-00:28:30, ~98% do limite de `500m`** — exatamente no momento do abort.
-2. **A latência interna da própria API** (`http_request_duration_seconds`, medida dentro do pod via Prometheus, não pelo k6) fica **estável em ~95ms de p95 por mais de 6 minutos** e só dispara nos últimos ~60s: **0,48s às 00:28:30, 1s às 00:29:00** — acompanhando a curva de CPU, não o k6.
-3. **Memória do pod fica estável** (~100-120MB de um limite de `256Mi`, nunca passa de 47%) — não é o gargalo. Zero restarts do pod (sem OOM/crash).
-4. **CPU dos 3 nodes fica com folga enorme durante todo o teste** — o node que hospeda o pod `api` chega no máximo a ~35% de utilização; os outros dois ficam entre 4-6%. **Não é falta de capacidade de node.**
+1. **The `api` pod's CPU rises steadily and monotonically** throughout the test — from ~0.15% at rest to **~0.49 cores at 00:28:15-00:28:30, ~98% of the `500m` limit** — exactly at the moment of the abort.
+2. **The API's own internal latency** (`http_request_duration_seconds`, measured inside the pod via Prometheus, not by k6) stays **stable at ~95ms p95 for over 6 minutes** and only spikes in the last ~60s: **0.48s at 00:28:30, 1s at 00:29:00** — tracking the CPU curve, not k6.
+3. **Pod memory stays stable** (~100-120MB out of a `256Mi` limit, never exceeding 47%) — not the bottleneck. Zero pod restarts (no OOM/crash).
+4. **CPU on the 3 nodes has ample headroom throughout the entire test** — the node hosting the `api` pod peaks at only ~35% utilization; the other two stay between 4-6%. **It's not a node capacity shortage.**
 
-**Achado confirmado: o gargalo é o limite de CPU (`500m`) da única réplica do Deployment `api`.** Sob carga sustentada (a saturação começou por volta do início do 4º estágio da rampa, ~6 min de teste, ~125-130 req/s combinados de `/api/healthz` + `/api/videos/{id}`), o `uvicorn` sem `--workers` esgota o único core alocado antes de qualquer outro recurso (node, memória) chegar perto do limite.
+**Confirmed finding: the bottleneck is the CPU limit (`500m`) of the Deployment `api`'s single replica.** Under sustained load (saturation began around the start of the 4th ramp stage, ~6 min into the test, ~125-130 combined req/s of `/api/healthz` + `/api/videos/{id}`), `uvicorn` without `--workers` exhausts the single allocated core before any other resource (node, memory) gets anywhere near its limit.
 
-**Isso reverte a conclusão precipitada da execução pós-fix anterior** ("este resultado derruba HPA baseado em CPU") — aquele resultado vinha de um teste que abortou cedo demais (91s, CPU nunca passou de 8,3%) por ruído de rede do cliente local, antes de a carga real chegar perto de saturar qualquer coisa. Com o ruído removido (EC2) e o teste rodando tempo suficiente para atingir carga real, **CPU é exatamente o sinal que sobe primeiro e no lugar certo (o pod, não o node)** — a resposta mais simples (HPA por CPU, ou aumentar `--workers`/o limite de CPU da réplica) volta a ser a candidata correta.
+**This overturns the premature conclusion of the earlier post-fix run** ("this result rules out CPU-based HPA") — that result came from a test that aborted too early (91s, CPU never exceeded 8.3%) due to client-side network noise, before real load got anywhere near saturating anything. With the noise removed (EC2) and the test running long enough to reach real load, **CPU is exactly the signal that rises first and in the right place (the pod, not the node)** — the simplest response (CPU-based HPA, or increasing `--workers`/the replica's CPU limit) is once again the correct candidate.
 
-**Decisão de mitigação (HPA vs. Cluster Autoscaler/Karpenter) agora tem dado real para se apoiar:** HPA baseado em CPU do pod `api` é a mitigação indicada — os nodes têm folga de sobra, então Cluster Autoscaler/Karpenter não resolveria nada sozinho aqui (só passaria a fazer sentido se o HPA algum dia escalasse réplicas o suficiente para esgotar os 3 nodes atuais, o que está longe de acontecer com a folga observada).
+**Mitigation decision (HPA vs. Cluster Autoscaler/Karpenter) now has real data to lean on:** CPU-based HPA on the `api` pod is the indicated mitigation — the nodes have ample headroom, so Cluster Autoscaler/Karpenter wouldn't solve anything on its own here (it would only start to make sense if the HPA ever scaled replicas enough to exhaust the current 3 nodes, which is far from happening given the observed headroom).
 
-Instância EC2 terminada ao final do teste (`trap cleanup EXIT`), confirmado no próprio log do script (`Cleaning up: terminating i-0af14f1a8b8316d5c`).
+EC2 instance terminated at the end of the test (`trap cleanup EXIT`), confirmed in the script's own log (`Cleaning up: terminating i-0af14f1a8b8316d5c`).
 
-## Resultado da execução via EC2, pós-HPA (2026-07-25) — o mesmo teste que abortava agora completa limpo
+## Run result via EC2, post-HPA (2026-07-25) — the same test that used to abort now completes cleanly
 
-HPA implementado (`docs/adr/012-hpa-cpu-autoscaling.md`): metrics-server via GitOps, `HorizontalPodAutoscaler` no Deployment `api` (`minReplicas: 2`, `maxReplicas: 6`, `averageUtilization: 70` de CPU), `PodDisruptionBudget` (`minAvailable: 1`), `ignoreDifferences` em `/spec/replicas` na Application `app` para o `selfHeal` do ArgoCD parar de brigar com o HPA.
+HPA implemented (`docs/adr/012-hpa-cpu-autoscaling.md`): metrics-server via GitOps, `HorizontalPodAutoscaler` on the Deployment `api` (`minReplicas: 2`, `maxReplicas: 6`, `averageUtilization: 70` of CPU), `PodDisruptionBudget` (`minAvailable: 1`), `ignoreDifferences` on `/spec/replicas` in the `app` Application so ArgoCD's `selfHeal` stops fighting the HPA.
 
-Reexecutado `AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh` com **exatamente os mesmos parâmetros** do teste anterior (`PEAK_RATE=400`, mesmo vídeo, mesma instância `t3.small`). Resultado:
+Reran `AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh` with **exactly the same parameters** as the previous test (`PEAK_RATE=400`, same video, same `t3.small` instance). Result:
 
-- **O teste completou os ~17 minutos inteiros — não abortou.** Antes abortava em ~6m32s.
-- `http_req_duration{endpoint:api}`: `p(95)=48.16ms` — contra `p(95)=1.19s`/`max=2.95s` de antes. Threshold (`p(95)<1000`) passou limpo.
-- `http_req_failed`: **0,00%** (1 falha isolada em 4.250.363 requisições — ruído desprezível, não um padrão).
-- Volume total bem maior que antes por ter completado o teste inteiro: 4.250.363 requisições, pico de 4166,5 req/s combinado (viewers + api).
+- **The test completed the full ~17 minutes — it did not abort.** It used to abort at ~6m32s.
+- `http_req_duration{endpoint:api}`: `p(95)=48.16ms` — versus `p(95)=1.19s`/`max=2.95s` before. The threshold (`p(95)<1000`) passed cleanly.
+- `http_req_failed`: **0.00%** (1 isolated failure out of 4,250,363 requests — negligible noise, not a pattern).
+- Total volume much higher than before, having completed the full test: 4,250,363 requests, combined peak of 4166.5 req/s (viewers + api).
 
-**Confirmado via Prometheus, na janela exata do teste (~01:03–01:21 UTC), que o HPA é a causa da melhora, não coincidência:**
-- **Réplicas escalaram de 2 → 3 → 5 → 6** acompanhando a CPU agregada subindo — chegou ao teto de `maxReplicas: 6` durante o estágio de pico (`PEAK_RATE=400` sustentado) e segurou ali.
-- **CPU agregada de todos os pods `api` chegou a ~2,3 cores no pico** — distribuída entre 6 réplicas (~380m cada, folga confortável abaixo do `limits.cpu: 500m` por pod que saturava sozinho antes) — nunca throttlou.
-- CPU caiu para perto de zero assim que o teste terminou, confirmando que o consumo acompanhou a carga real, não outro processo.
+**Confirmed via Prometheus, in the exact test window (~01:03–01:21 UTC), that the HPA is the cause of the improvement, not a coincidence:**
+- **Replicas scaled 2 → 3 → 5 → 6** tracking aggregate CPU as it rose — reached the `maxReplicas: 6` ceiling during the peak stage (`PEAK_RATE=400` sustained) and held there.
+- **Aggregate CPU across all `api` pods reached ~2.3 cores at the peak** — spread across 6 replicas (~380m each, comfortable headroom below the per-pod `limits.cpu: 500m` that used to saturate alone) — never throttled.
+- CPU dropped to near zero as soon as the test ended, confirming that consumption tracked real load, not another process.
 
-**Conclusão: a mitigação funcionou exatamente como o dado da execução anterior previa.** O gargalo de CPU de uma réplica única foi resolvido distribuindo a carga entre múltiplas réplicas, dentro da folga de CPU dos nodes já confirmada.
+**Conclusion: the mitigation worked exactly as the previous run's data predicted.** The single-replica CPU bottleneck was resolved by spreading load across multiple replicas, within the node CPU headroom already confirmed.
 
-**Isso não encontrou um novo teto de capacidade** — só confirmou que o teto anterior (uma réplica, ~125-130 req/s combinados) foi superado com folga em `PEAK_RATE=400`. Para achar o novo ponto de quebra (agora limitado por `maxReplicas: 6` × `500m` de CPU por pod, ou por outro recurso ainda não testado), o próximo passo seria escalar `PEAK_RATE` (800, depois 1600...) até o teste abortar de novo — não feito nesta sessão, fica como candidato futuro se o objetivo for encontrar o novo teto exato em vez de só validar a mitigação.
+**This did not find a new capacity ceiling** — it only confirmed that the previous ceiling (one replica, ~125-130 combined req/s) was comfortably surpassed at `PEAK_RATE=400`. To find the new breaking point (now limited by `maxReplicas: 6` × `500m` CPU per pod, or by some other resource not yet tested), the next step would be to scale up `PEAK_RATE` (800, then 1600...) until the test aborts again — not done in this session, remains a future candidate if the goal is to find the exact new ceiling rather than just validate the mitigation.
 
-## Resultado da execução via EC2, `PEAK_RATE=800` (2026-07-26) — novo teto real encontrado: `maxReplicas: 6`, não CPU de uma réplica
+## Run result via EC2, `PEAK_RATE=800` (2026-07-26) — new real ceiling found: `maxReplicas: 6`, not one replica's CPU
 
-Reexecutado `PEAK_RATE=800 AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh` (dobro do valor anterior), mesma instância `t3.small`, mesmo vídeo de teste. Desta vez o teste **abortou de novo** — mas por um motivo genuinamente diferente do bottleneck de CPU de uma réplica já resolvido pelo HPA:
+Reran `PEAK_RATE=800 AWS_PROFILE=cloudlab ./load/run-breakpoint-from-ec2.sh` (double the previous value), same `t3.small` instance, same test video. This time the test **aborted again** — but for a genuinely different reason than the single-replica CPU bottleneck already resolved by the HPA:
 
-- `http_req_failed`: **0,00%** (2 falhas isoladas em 2.031.915 requisições — ruído desprezível, mesmo padrão de execuções anteriores).
-- `http_req_duration{endpoint:api}`: `p(95)=1.04s`, `max=12.94s` — estourou o threshold (`p(95)<1000`) de novo.
-- `http_reqs`: pico de ~3721,6 req/s combinado (viewers + api) antes do abort — a própria instância `t3.small` gerou throughput muito acima do `PEAK_RATE=800` alvo (checks, iterações e requisições completadas na casa dos milhões), o que já é um primeiro indício de que o gerador de carga **não** foi o gargalo desta vez.
+- `http_req_failed`: **0.00%** (2 isolated failures out of 2,031,915 requests — negligible noise, same pattern as previous runs).
+- `http_req_duration{endpoint:api}`: `p(95)=1.04s`, `max=12.94s` — breached the threshold (`p(95)<1000`) again.
+- `http_reqs`: combined peak of ~3721.6 req/s (viewers + api) before the abort — the `t3.small` instance itself generated throughput far above the `PEAK_RATE=800` target (checks, iterations, and completed requests in the millions), which is already a first hint that the load generator was **not** the bottleneck this time.
 
-**Causa raiz confirmada via `kubectl describe hpa` + Prometheus, coletados logo após o teste** (réplicas já haviam voltado a `2` pelo cooldown do HPA no momento da coleta — por isso as queries instantâneas de CPU/latência abaixo mostram valores baixos, refletindo o estado pós-teste, não o pico):
+**Root cause confirmed via `kubectl describe hpa` + Prometheus, collected right after the test** (replicas had already returned to `2` due to the HPA cooldown by the time of collection — that's why the instantaneous CPU/latency queries below show low values, reflecting the post-test state, not the peak):
 
 ```
 Events:
@@ -186,10 +186,10 @@ Events:
   Normal  SuccessfulRescale  3m7s  horizontal-pod-autoscaler  New size: 2; reason: All metrics below target
 ```
 
-O HPA escalou 2 → 3 → 5 → **6** (o próprio `maxReplicas`) durante a rampa e **segurou em 6 réplicas** por vários minutos, até o tráfego cessar (scale-down para 2, "All metrics below target", ~3 minutos antes da coleta). Isso é a mesma sequência de escalonamento já vista no run bem-sucedido de `PEAK_RATE=400` — a diferença é que, desta vez, o sistema bateu no teto de `maxReplicas: 6` e ficou ali sob demanda ainda crescente, em vez de estabilizar com folga.
+The HPA scaled 2 → 3 → 5 → **6** (its own `maxReplicas`) during the ramp and **held at 6 replicas** for several minutes, until traffic ceased (scale-down to 2, "All metrics below target", ~3 minutes before collection). This is the same scaling sequence already seen in the successful `PEAK_RATE=400` run — the difference is that, this time, the system hit the `maxReplicas: 6` ceiling and stayed there under still-growing demand, instead of stabilizing with headroom.
 
-**Conclusão: o novo teto real não é mais CPU de uma réplica (resolvido pelo HPA) — é o próprio `maxReplicas: 6` do HPA.** Com 6 réplicas × `limits.cpu: 500m` = 3 cores agregados como limite físico do Deployment, `PEAK_RATE=800` gerou mais demanda do que 3 cores conseguem absorver, causando fila (latência subindo até `max=12.94s`) sem chegar a derrubar requisições (erro seguiu em 0%) — o comportamento esperado de um sistema saturado, mas não instável.
+**Conclusion: the new real ceiling is no longer one replica's CPU (solved by the HPA) — it's the HPA's own `maxReplicas: 6`.** With 6 replicas × `limits.cpu: 500m` = 3 aggregate cores as the Deployment's physical limit, `PEAK_RATE=800` generated more demand than 3 cores can absorb, causing queuing (latency rising up to `max=12.94s`) without dropping requests (error rate stayed at 0%) — the expected behavior of a saturated but not unstable system.
 
-**Ponto parado aqui, sem escalar para `PEAK_RATE=1600`:** o critério de parada (causa raiz clara via HPA/Prometheus, ou CPU agregada no teto de `maxReplicas`) já foi atingido — testar `1600` só bateria na mesma parede mais rápido, sem revelar informação nova sobre a arquitetura atual. Achar o valor exato de req/s onde a degradação começa (entre 400 e 800) fica como candidato futuro, não necessário para o objetivo desta fase (confirmar que existe um teto conhecido e por quê).
+**Stopped here, without scaling to `PEAK_RATE=1600`:** the stopping criterion (a clear root cause via HPA/Prometheus, or aggregate CPU at the `maxReplicas` ceiling) was already met — testing `1600` would only hit the same wall faster, without revealing new information about the current architecture. Finding the exact req/s value where degradation begins (between 400 and 800) remains a future candidate, not necessary for this phase's goal (confirming that a known ceiling exists and why).
 
-**Implicação prática para a Fase 6:** `maxReplicas: 6` (ADR 012) é hoje uma decisão de configuração, não uma limitação física — os 3 nodes `t3.medium` seguem com folga de sobra (confirmado nas execuções anteriores). Se o objetivo for suportar mais que ~800 req/s de pico, o próximo ajuste é subir `maxReplicas` (o node group aguenta mais réplicas antes de esbarrar no limite de 17 pods/nó da VPC CNI, ver ADR 011 decisão 1) — não uma mudança de estratégia de autoscaling.
+**Practical implication for Phase 6:** `maxReplicas: 6` (ADR 012) is today a configuration decision, not a physical limitation — the 3 `t3.medium` nodes still have plenty of headroom (confirmed in previous runs). If the goal is to support more than ~800 req/s peak, the next adjustment is to raise `maxReplicas` (the node group can handle more replicas before hitting the VPC CNI's 17 pods/node limit, see ADR 011 decision 1) — not a change in autoscaling strategy.

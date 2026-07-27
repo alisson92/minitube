@@ -1,38 +1,38 @@
-# Chaos: simular interrupção de node spot
+# Chaos: simulate a spot node interruption
 
-## O quê
+## What
 
-`chaos/drain-spot-node.sh` escolhe um node do node group `minitube-spot`, faz `kubectl cordon` + `kubectl drain --ignore-daemonsets --delete-emptydir-data`, e confirma que o Deployment `api` volta a `Ready` nos nodes restantes dentro de um timeout. Não termina a instância EC2 de verdade — isso entraria em conflito com o `desired_size` fixo do ASG (`3/3/3`, ver ADR 011) e arriscaria drift de state do Terraform; cordon+drain simula o efeito relevante (perda de capacidade de um node) sem esse risco.
+`chaos/drain-spot-node.sh` picks a node from the `minitube-spot` node group, runs `kubectl cordon` + `kubectl drain --ignore-daemonsets --delete-emptydir-data`, and confirms the `api` Deployment goes back to `Ready` on the remaining nodes within a timeout. It doesn't actually terminate the EC2 instance — that would conflict with the ASG's fixed `desired_size` (`3/3/3`, see ADR 011) and risk Terraform state drift; cordon+drain simulates the relevant effect (loss of one node's capacity) without that risk.
 
-Por padrão, evita nodes que hospedam pods com PVC (`minitube-platform` — Prometheus, Loki, Grafana): um volume EBS é preso à AZ, então drenar esse node faria o pod ficar `Pending` por um motivo de storage, não pela perda de node em si, que é o que este experimento quer exercitar.
+By default, it avoids nodes hosting pods with a PVC (`minitube-platform` — Prometheus, Loki, Grafana): an EBS volume is bound to its AZ, so draining that node would make the pod go `Pending` for a storage reason, not because of the node loss itself, which is what this experiment is meant to exercise.
 
-## Por quê
+## Why
 
-O node group é spot — interrupções reais acontecem. O objetivo é confirmar que o cluster reagenda a carga sem intervenção manual antes que isso aconteça de verdade em produção.
+The node group is spot — real interruptions happen. The goal is to confirm the cluster reschedules the workload without manual intervention before this happens for real in production.
 
-## Como
+## How
 
 ```bash
 AWS_PROFILE=cloudlab ./chaos/drain-spot-node.sh
 ```
 
-Variáveis de ambiente opcionais:
+Optional environment variables:
 - `DRAIN_TIMEOUT_SECONDS` (default 120)
 - `RESCHEDULE_TIMEOUT_SECONDS` (default 120)
 
-O node escolhido é sempre descordonado ao final (`trap cleanup EXIT`), mesmo em caso de falha — nunca deve sobrar um node marcado `SchedulingDisabled` depois de rodar este script.
+The chosen node is always uncordoned at the end (`trap cleanup EXIT`), even on failure — no node should ever be left marked `SchedulingDisabled` after running this script.
 
-## Como ler o resultado
+## How to read the result
 
-- **PASS:** `kubectl rollout status deployment/api` reportou `Ready` dentro do timeout — os pods da API reagendaram para os nodes restantes sem intervenção.
+- **PASS:** `kubectl rollout status deployment/api` reported `Ready` within the timeout — the API pods rescheduled onto the remaining nodes without intervention.
 - **FAIL:**
-  - Confira `kubectl -n minitube-app get pods -o wide` — os pods ficaram `Pending`? Provavelmente falta de capacidade nos nodes restantes (2 nodes × 17 pods/nó via VPC CNI, ver ADR 011 decisão 1) — nesse caso o `maxReplicas: 6` do HPA pode estar tentando escalar além do que 2 nodes comportam.
-  - Se o script falhou porque **todos** os nodes hospedam pods com PVC, é sinal de que o cluster está rodando com menos nodes do que o esperado (`3/3/3`) — confira `kubectl get nodes`.
+  - Check `kubectl -n minitube-app get pods -o wide` — did the pods go `Pending`? Likely a lack of capacity on the remaining nodes (2 nodes × 17 pods/node via VPC CNI, see ADR 011 decision 1) — in that case the HPA's `maxReplicas: 6` may be trying to scale beyond what 2 nodes can hold.
+  - If the script failed because **all** nodes host pods with a PVC, that's a sign the cluster is running with fewer nodes than expected (`3/3/3`) — check `kubectl get nodes`.
 
-## Resultado da execução (2026-07-26) — PASS
+## Run result (2026-07-26) — PASS
 
-Node alvo escolhido automaticamente (`ip-10-0-24-125...`, sem PVC — os outros dois hospedavam Prometheus/Loki/Grafana e foram evitados). Além do pod `api`, o node também hospedava vários singletons de plataforma sem afinidade explícita a este node em particular: `argocd-application-controller-0`, `ebs-csi-controller`, `cert-manager-webhook`, `external-dns`, `alertmanager`, `kube-prometheus-stack-operator` e `coredns` — todos drenados e reagendados junto, sem erro (`argocd-application-controller` não tem PVC nesta configuração — `terraform/envs/lab/values/argocd.yaml` não define persistência — por isso não precisou entrar na lista de nodes evitados, só os StatefulSets com PVC real de Prometheus/Loki/Grafana precisam disso).
+Target node chosen automatically (`ip-10-0-24-125...`, no PVC — the other two hosted Prometheus/Loki/Grafana and were avoided). Besides the `api` pod, the node also hosted several platform singletons with no explicit affinity to that particular node: `argocd-application-controller-0`, `ebs-csi-controller`, `cert-manager-webhook`, `external-dns`, `alertmanager`, `kube-prometheus-stack-operator` and `coredns` — all drained and rescheduled along with it, with no error (`argocd-application-controller` has no PVC in this configuration — `terraform/envs/lab/values/argocd.yaml` doesn't define persistence — so it didn't need to be in the avoided-nodes list; only the StatefulSets with a real PVC for Prometheus/Loki/Grafana need that).
 
-`kubectl rollout status deployment/api` completou dentro do timeout: os dois pods `api` restantes reapareceram `Running` nos outros dois nodes (`api-...-dcw29`, `api-...-m6zlg`). Node descordonado ao final (`trap cleanup EXIT`), confirmado no próprio log (`node/... uncordoned`).
+`kubectl rollout status deployment/api` completed within the timeout: the two remaining `api` pods reappeared `Running` on the other two nodes (`api-...-dcw29`, `api-...-m6zlg`). Node uncordoned at the end (`trap cleanup EXIT`), confirmed in the log itself (`node/... uncordoned`).
 
-`PASS`: reagendamento automático confirmado, sem intervenção manual.
+`PASS`: automatic rescheduling confirmed, with no manual intervention.

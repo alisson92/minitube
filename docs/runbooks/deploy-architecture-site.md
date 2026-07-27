@@ -1,39 +1,39 @@
-# Runbook — Deploy da página de arquitetura
+# Runbook — Deploying the architecture page
 
-> Atualiza o conteúdo de `https://system-design.minitube.projetodevops.com.br`. Não confundir com o runbook principal (`run-the-project.md`) — este recurso vive em `terraform/bootstrap/`, persistente, fora do ciclo `apply`/`destroy` diário de `envs/lab`. Ver [ADR 017](../adr/017-persistent-architecture-showcase-site.md).
+> Updates the content of `https://system-design.minitube.projetodevops.com.br`. Not to be confused with the main runbook (`run-the-project.md`) — this resource lives in `terraform/bootstrap/`, persistent, outside of `envs/lab`'s daily `apply`/`destroy` cycle. See [ADR 017](../adr/017-persistent-architecture-showcase-site.md).
 
-## Quando rodar
+## When to run
 
-Sempre que `site/architecture/index.html` mudar. A infraestrutura (`terraform/bootstrap/architecture-site.tf`) só precisa de `apply` uma vez (ou quando o próprio recurso Terraform mudar) — conteúdo e infraestrutura são deploys separados de propósito.
+Whenever `site/architecture/index.html` changes. The infrastructure (`terraform/bootstrap/architecture-site.tf`) only needs `apply` once (or when the Terraform resource itself changes) — content and infrastructure are deployed separately on purpose.
 
-## Primeira vez (só quando a infraestrutura ainda não existe)
+## First time (only when the infrastructure doesn't yet exist)
 
 ```bash
 cd terraform/bootstrap
-terraform plan   # revisar antes de aplicar, mesmo sendo um módulo persistente
+terraform plan   # review before applying, even though it's a persistent module
 terraform apply
 ```
 
-## Deploy de conteúdo (toda vez que a página mudar)
+## Content deploy (every time the page changes)
 
 ```bash
 cd terraform/bootstrap
 AWS_PROFILE=cloudlab ./scripts/deploy-architecture-site.sh
 ```
 
-O script lê `bucket`/`distribution_id` via `terraform output` (nunca hardcoded), sincroniza `site/architecture/` para o S3 e invalida o cache do CloudFront — a mudança fica visível em segundos, sem esperar o TTL do cache.
+The script reads `bucket`/`distribution_id` via `terraform output` (never hardcoded), syncs `site/architecture/` to S3, and invalidates the CloudFront cache — the change becomes visible within seconds, without waiting for the cache TTL.
 
-## Validação funcional
+## Functional validation
 
-Depois do primeiro `apply` + primeiro deploy:
+After the first `apply` + first deploy:
 
 ```bash
 curl -sI https://system-design.minitube.projetodevops.com.br | head -5
 ```
 
-Esperado: `HTTP/2 200`, certificado válido (sem erro do `curl`), `content-type: text/html`. Abrir no navegador para conferir visualmente — "apply sem erro" não prova que a página renderiza certo (`docs/engineering-standards.md` §11).
+Expected: `HTTP/2 200`, a valid certificate (no `curl` error), `content-type: text/html`. Open it in the browser to check visually — "apply with no error" doesn't prove the page renders correctly (`docs/engineering-standards.md` §11).
 
-## Notas
+## Notes
 
-- `terraform/bootstrap/` nunca é destruído — não há runbook de "destroy" para este recurso.
-- O conteúdo (`site/architecture/index.html`) não é gerenciado pelo Terraform — mudanças nele exigem rodar o script de deploy, não `terraform apply`.
+- `terraform/bootstrap/` is never destroyed — there's no "destroy" runbook for this resource.
+- The content (`site/architecture/index.html`) is not managed by Terraform — changes to it require running the deploy script, not `terraform apply`.

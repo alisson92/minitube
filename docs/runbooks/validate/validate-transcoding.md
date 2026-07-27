@@ -1,35 +1,35 @@
-# Runbook — Validação funcional da transcodificação (API + transcoder)
+# Runbook — Transcoding functional validation (API + transcoder)
 
-> Estabelece o padrão de "validação funcional pós-apply" descrito em [`docs/engineering-standards.md`](../../engineering-standards.md#11-validação-funcional-pós-apply). Ver também [`docs/adr/006-app-irsa-and-job-orchestration.md`](../../adr/006-app-irsa-and-job-orchestration.md).
+> Establishes the "functional validation post-apply" standard described in [`docs/engineering-standards.md`](../../engineering-standards.md#11-post-apply-functional-validation). See also [`docs/adr/006-app-irsa-and-job-orchestration.md`](../../adr/006-app-irsa-and-job-orchestration.md).
 
-## Por que isso existe
+## Why this exists
 
-`kubectl apply -k gitops/app/` sem erro e os pods `Running` provam que os manifests **existem com a configuração esperada** — não provam que um vídeo real consegue ser enviado, transcodificado e servido como HLS. A pergunta que importa: um upload real dispara um Job real, que roda o FFmpeg de verdade e grava segmentos legíveis no S3? Isso só se responde exercitando o pipeline ponta a ponta.
+`kubectl apply -k gitops/app/` without error and pods `Running` prove that the manifests **exist with the expected configuration** — they do not prove that a real video can be uploaded, transcoded, and served as HLS. The question that matters: does a real upload trigger a real Job, which actually runs FFmpeg and writes readable segments to S3? This can only be answered by exercising the pipeline end to end.
 
-Este runbook documenta `terraform/envs/lab/scripts/validate-transcoding.sh`, que gera um vídeo sintético com FFmpeg (sem commitar binário no repo), envia via `POST /api/videos`, espera o Job terminar, e confirma a playlist + segmentos no S3.
+This runbook documents the `terraform/envs/lab/scripts/validate-transcoding.sh` script, which generates a synthetic video with FFmpeg (without committing a binary to the repo), uploads it via `POST /api/videos`, waits for the Job to finish, and confirms the playlist + segments in S3.
 
-## Pré-requisitos
+## Prerequisites
 
-### 1. Grant de IAM ao operador (uma única vez, via CloudShell)
+### 1. IAM grant for the operator (one time, via CloudShell)
 
-A IRSA role da app precisa que o operador diário ganhe permissão para gerenciar roles com prefixo `minitube-app-*`, e também para ler/gerenciar o OIDC provider do cluster (`aws_iam_openid_connect_provider.this`, dentro de `terraform/modules/eks/` desde o ADR 013 — existente desde a Fase 1, mas nunca antes planejado pelo profile do operador) — ver decisão em [ADR 006](../../adr/006-app-irsa-and-job-orchestration.md). Sem isso, `terraform plan`/`apply` em `envs/lab` falha: ao tentar criar `aws_iam_role.app` (primeira execução) ou, em qualquer execução seguinte, ao fazer o *refresh* do OIDC provider já existente no state (`AccessDenied` em `iam:GetOpenIDConnectProvider`).
+The app's IRSA role requires the day-to-day operator to gain permission to manage roles with the `minitube-app-*` prefix, and also to read/manage the cluster's OIDC provider (`aws_iam_openid_connect_provider.this`, inside `terraform/modules/eks/` since ADR 013 — existing since Phase 1, but never previously planned by the operator profile) — see the decision in [ADR 006](../../adr/006-app-irsa-and-job-orchestration.md). Without this, `terraform plan`/`apply` in `envs/lab` fails: either while trying to create `aws_iam_role.app` (first run) or, on any subsequent run, while refreshing the OIDC provider already in state (`AccessDenied` on `iam:GetOpenIDConnectProvider`).
 
 ```bash
-# Sessão root/CloudShell, uma única vez
+# Root/CloudShell session, one time only
 cd terraform/bootstrap-iam
-terraform plan     # revisar: 2 statements novas na inline policy do operador (ManageAppIrsaRoles, ManageEksOidcProvider)
+terraform plan     # review: 2 new statements in the operator's inline policy (ManageAppIrsaRoles, ManageEksOidcProvider)
 terraform apply
 ```
 
-### 2. Repositórios ECR (operador diário, sem CloudShell)
+### 2. ECR repositories (day-to-day operator, no CloudShell)
 
 ```bash
 cd terraform/bootstrap
-AWS_PROFILE=cloudlab terraform plan     # revisar: 2 aws_ecr_repository novos
+AWS_PROFILE=cloudlab terraform plan     # review: 2 new aws_ecr_repository resources
 AWS_PROFILE=cloudlab terraform apply
 ```
 
-### 3. Build e push das imagens (manual — sem CI nesta fase)
+### 3. Build and push the images (manual — no CI in this phase)
 
 ```bash
 account_id=$(aws sts get-caller-identity --profile cloudlab --query Account --output text)
@@ -43,48 +43,48 @@ docker build -t "${account_id}.dkr.ecr.us-east-1.amazonaws.com/minitube-transcod
 docker push "${account_id}.dkr.ecr.us-east-1.amazonaws.com/minitube-transcoder:v0.1.0"
 ```
 
-### 4. VPC + EKS + bucket S3 + IRSA role + acesso ao cluster (operador diário, sem CloudShell)
+### 4. VPC + EKS + S3 bucket + IRSA role + cluster access (day-to-day operator, no CloudShell)
 
 ```bash
 cd terraform/envs/lab
-AWS_PROFILE=cloudlab terraform plan     # revisar: VPC+EKS (se recriando) + bucket S3 + IRSA role + policy + access entry
+AWS_PROFILE=cloudlab terraform plan     # review: VPC+EKS (if recreating) + S3 bucket + IRSA role + policy + access entry
 AWS_PROFILE=cloudlab terraform apply
 ```
 
-Inclui `aws_eks_access_entry`/`aws_eks_access_policy_association` (cluster-admin para `var.operator_role_arn`) — sem isso, `kubectl` falha na autenticação mesmo com IAM correto, se o cluster tiver sido criado por uma identidade diferente da que está rodando `kubectl` agora (ver [ADR 006](../../adr/006-app-irsa-and-job-orchestration.md), item 6).
+Includes `aws_eks_access_entry`/`aws_eks_access_policy_association` (cluster-admin for `var.operator_role_arn`) — without this, `kubectl` fails authentication even with correct IAM, if the cluster was created by an identity different from the one currently running `kubectl` (see [ADR 006](../../adr/006-app-irsa-and-job-orchestration.md), item 6).
 
-⚠️ Se o permission set `cloudlab-operator` for recriado (evento raro), `var.operator_role_arn` em `terraform/envs/lab/variables.tf` precisa ser atualizado — obtenha o novo ARN via `aws iam get-role --role-name AWSReservedSSO_cloudlab-operator_<hash> --query Role.Arn --output text` (CloudShell/root, só leitura).
+⚠️ If the `cloudlab-operator` permission set is ever recreated (a rare event), `var.operator_role_arn` in `terraform/envs/lab/variables.tf` needs to be updated — get the new ARN via `aws iam get-role --role-name AWSReservedSSO_cloudlab-operator_<hash> --query Role.Arn --output text` (CloudShell/root, read-only).
 
-### 5. ArgoCD sincroniza gitops/app/ automaticamente
+### 5. ArgoCD syncs gitops/app/ automatically
 
-A partir da Fase 3, `gitops/app/` não é mais aplicado manualmente — o ArgoCD (instalado via `terraform/envs/lab/argocd.tf`, junto do restante do `apply` acima) sincroniza a partir do Git. Confirmar que a Application está `Synced`+`Healthy` antes de seguir para o teste de transcodificação:
+As of Phase 3, `gitops/app/` is no longer applied manually — ArgoCD (installed via `terraform/envs/lab/argocd.tf`, alongside the rest of the `apply` above) syncs it from Git. Confirm the Application is `Synced`+`Healthy` before moving on to the transcoding test:
 
 ```bash
 AWS_PROFILE=cloudlab ./scripts/validate-argocd.sh
 ```
 
-Ver [`docs/runbooks/validate/validate-argocd-gitops.md`](./validate-argocd-gitops.md) e [ADR 007](../../adr/007-argocd-gitops-bootstrap.md). Nenhum `kubectl apply -k gitops/app/` deve ser rodado a partir desta fase.
+See [`docs/runbooks/validate/validate-argocd-gitops.md`](./validate-argocd-gitops.md) and [ADR 007](../../adr/007-argocd-gitops-bootstrap.md). No `kubectl apply -k gitops/app/` should be run from this phase onward.
 
-## Executar o teste
+## Run the test
 
 ```bash
 cd terraform/envs/lab
 AWS_PROFILE=cloudlab ./scripts/validate-transcoding.sh
 ```
 
-Dependências no seu ambiente: `aws` CLI, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg`.
+Dependencies in your environment: `aws` CLI, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg`.
 
-## Como funciona
+## How it works
 
-- Gera um clipe sintético de 3s (`ffmpeg -f lavfi`) — sem depender de um arquivo de vídeo commitado no repo.
-- Abre um `kubectl port-forward` para o Service da API (sem Ingress/ALB ainda — isso é Fase 4).
-- `POST /api/videos` com o clipe; a API grava o bruto em `s3://<bucket>/raw/<video_id>.mp4` e cria um Job `transcode-<video_id>`.
-- Faz *poll* em `GET /api/videos/{video_id}` até `succeeded`/`failed` (timeout de 300s).
-- Confirma via `aws s3api head-object`/`aws s3 ls` que `hls/<video_id>/playlist.m3u8` e ao menos um segmento `.ts` existem.
-- Se o Job falhar, imprime os logs do pod antes de sair (`kubectl logs job/transcode-<video_id>`), pra facilitar debug.
-- **Cleanup garantido:** `trap cleanup EXIT` mata o `port-forward` e remove o vídeo temporário, mesmo em falha.
+- Generates a synthetic 3s clip (`ffmpeg -f lavfi`) — without depending on a video file committed to the repo.
+- Opens a `kubectl port-forward` to the API's Service (no Ingress/ALB yet — that's Phase 4).
+- `POST /api/videos` with the clip; the API writes the raw file to `s3://<bucket>/raw/<video_id>.mp4` and creates a Job `transcode-<video_id>`.
+- Polls `GET /api/videos/{video_id}` until `succeeded`/`failed` (300s timeout).
+- Confirms via `aws s3api head-object`/`aws s3 ls` that `hls/<video_id>/playlist.m3u8` and at least one `.ts` segment exist.
+- If the Job fails, prints the pod logs before exiting (`kubectl logs job/transcode-<video_id>`), to help with debugging.
+- **Guaranteed cleanup:** `trap cleanup EXIT` kills the `port-forward` and removes the temporary video, even on failure.
 
-## Leitura esperada do output
+## Expected output
 
 ```
 PASS: API is reachable and healthy
@@ -94,14 +94,14 @@ PASS: at least one HLS segment exists in S3 (found: 1)
 === All checks passed: a real video was uploaded, transcoded, and its HLS segments are readable in S3. ===
 ```
 
-Código de saída `0` quando tudo passa, `1` se qualquer checagem falhar.
+Exit code `0` when everything passes, `1` if any check fails.
 
-## Destruir tudo ao final do teste
+## Destroy everything at the end of the test
 
 ```bash
 cd terraform/envs/lab
-AWS_PROFILE=cloudlab terraform plan -destroy   # revisar: VPC, EKS, bucket S3, IRSA role — tudo
+AWS_PROFILE=cloudlab terraform plan -destroy   # review: VPC, EKS, S3 bucket, IRSA role — everything
 AWS_PROFILE=cloudlab terraform destroy
 ```
 
-`terraform/bootstrap/` (ECR) e `terraform/bootstrap-iam/` (roles, permission set, budget alert) **não** são destruídos — persistem entre sessões, sem custo relevante. As imagens no ECR também persistem, então a próxima sessão de teste não precisa rebuildar/repush a menos que o código tenha mudado.
+`terraform/bootstrap/` (ECR) and `terraform/bootstrap-iam/` (roles, permission set, budget alert) are **not** destroyed — they persist between sessions, with no relevant cost. The ECR images also persist, so the next test session doesn't need to rebuild/repush unless the code has changed.
