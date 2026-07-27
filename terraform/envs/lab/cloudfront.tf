@@ -55,7 +55,8 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 # orders API calls, not in-cluster reconciliation: helm_release.argocd_apps
 # returns before the controller has actually provisioned the ALB, failing
 # the very first `apply` of a new environment ~always without this poll.
-# See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md.
+# See docs/adr/010-lbc-orphan-cleanup-and-alb-wait.md and, for the 15min
+# budget below, docs/adr/014-alb-wait-timeout-phase5-retune.md.
 resource "null_resource" "wait_for_alb" {
   depends_on = [helm_release.argocd_apps]
 
@@ -69,13 +70,18 @@ resource "null_resource" "wait_for_alb" {
     interpreter = ["/bin/bash", "-c"]
     command     = <<-EOT
       set -euo pipefail
-      for i in $(seq 1 30); do
+      deadline_seconds=900
+      interval_seconds=10
+      elapsed=0
+      while [ "$elapsed" -lt "$deadline_seconds" ]; do
         if aws elbv2 describe-load-balancers --region ${var.aws_region} --names minitube-app >/dev/null 2>&1; then
           exit 0
         fi
-        sleep 10
+        sleep "$interval_seconds"
+        elapsed=$((elapsed + interval_seconds))
+        echo "still waiting for ALB 'minitube-app' ($${elapsed}s/$${deadline_seconds}s elapsed)..." >&2
       done
-      echo "timed out waiting for ALB 'minitube-app' to be provisioned by aws-load-balancer-controller" >&2
+      echo "timed out after $${deadline_seconds}s waiting for ALB 'minitube-app' to be provisioned by aws-load-balancer-controller" >&2
       exit 1
     EOT
   }
