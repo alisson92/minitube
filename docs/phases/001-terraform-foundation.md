@@ -1,59 +1,59 @@
-# Fase 1 — Fundação Terraform
+# Phase 1 — Terraform Foundation
 
-> Retrospecto da fase, escrito ao final dela. Não repete o conteúdo de ADRs e runbooks — linka para eles. Serve como insumo para a documentação final do projeto (ver `CLAUDE.md`, seção "Estrutura do repositório").
+> Phase retrospective, written at its end. Does not repeat the content of ADRs and runbooks — links to them. Serves as input for the project's final documentation (see `CLAUDE.md`, "Repository structure" section).
 
-## Objetivo da fase
+## Phase goal
 
-Construir a base de infraestrutura como código sobre a qual todas as fases seguintes se apoiam: backend remoto de state, uma conta AWS com identidade e privilégios bem definidos, uma VPC própria e um cluster EKS com node group spot — tudo aplicável do zero e destrutível por completo, sem passos manuais escondidos. O critério de conclusão original (`CLAUDE.md`): *"`terraform destroy` completo seguido de `apply` limpo, sem passos manuais"*.
+Build the infrastructure-as-code foundation on which all subsequent phases rest: remote state backend, an AWS account with well-defined identity and privileges, a dedicated VPC, and an EKS cluster with a spot node group — all applicable from scratch and fully destructible, with no hidden manual steps. The original completion criterion (`CLAUDE.md`): *"a complete `terraform destroy` followed by a clean `apply`, with no manual steps"*.
 
-## O que foi entregue
+## What was delivered
 
-| Entregável | Onde vive | Persistente ou efêmero |
+| Deliverable | Where it lives | Persistent or ephemeral |
 | --- | --- | --- |
-| Backend remoto de state (bucket S3 + lock nativo) | `terraform/bootstrap/` | Persistente |
-| Conta AWS dedicada + operador via IAM Identity Center (SSO) | `terraform/bootstrap-iam/` | Persistente |
-| Roles IAM do EKS (cluster/node) + OIDC provider (IRSA) | `terraform/bootstrap-iam/` + `terraform/envs/lab/eks.tf` | Roles persistentes; cluster efêmero |
-| VPC (2 AZs, subnets públicas/privadas, 1 NAT Gateway) | `terraform/envs/lab/vpc.tf` | Efêmero |
-| EKS + node group gerenciado spot (2× t3.medium) | `terraform/envs/lab/eks.tf` | Efêmero |
-| Budget alert (10 USD/mês, e-mail em 80%/100%) | `terraform/bootstrap-iam/budget.tf` | Persistente |
+| Remote state backend (S3 bucket + native lock) | `terraform/bootstrap/` | Persistent |
+| Dedicated AWS account + operator via IAM Identity Center (SSO) | `terraform/bootstrap-iam/` | Persistent |
+| EKS IAM roles (cluster/node) + OIDC provider (IRSA) | `terraform/bootstrap-iam/` + `terraform/envs/lab/eks.tf` | Persistent roles; ephemeral cluster |
+| VPC (2 AZs, public/private subnets, 1 NAT Gateway) | `terraform/envs/lab/vpc.tf` | Ephemeral |
+| EKS + managed spot node group (2× t3.medium) | `terraform/envs/lab/eks.tf` | Ephemeral |
+| Budget alert (10 USD/month, email at 80%/100%) | `terraform/bootstrap-iam/budget.tf` | Persistent |
 
-A divisão persistente/efêmero não foi um detalhe de organização — foi a decisão de arquitetura mais recorrente da fase (ver seção seguinte).
+The persistent/ephemeral split was not an organizational detail — it was the most recurring architecture decision of the phase (see next section).
 
-## Decisões de arquitetura (ADRs)
+## Architecture decisions (ADRs)
 
-Cada uma resolveu um problema concreto encontrado durante a fase, não uma escolha abstrata de "melhores práticas":
+Each one solved a concrete problem found during the phase, not an abstract "best practices" choice:
 
-- **[ADR 001](../adr/001-terraform-state-backend.md) — Backend remoto com lock nativo do S3.** Evita a dependência de uma tabela DynamoDB adicional, usando o lock nativo (`use_lockfile`) disponível desde o Terraform 1.10.
-- **[ADR 002](../adr/002-aws-account-and-iam-bootstrap.md) — Conta AWS dedicada e separação `bootstrap`/`bootstrap-iam`.** Nasceu de um erro real: o primeiro `apply` falhou porque a conta herdada de um projeto anterior não tinha o `lab-operator` rastreável nem `s3:CreateBucket`. A separação em dois módulos (um de uso diário, outro admin-only) resolveu um segundo problema — `PowerUserAccess` bloqueia toda leitura de IAM, então o state de recursos IAM não pode nem ser planejado pelo operador diário.
-- **[ADR 003](../adr/003-cloudlab-operator-sso-migration.md) — Migração para IAM Identity Center.** Substituiu a `aws_iam_access_key` estática do operador por credenciais temporárias via `aws sso login`, eliminando a última credencial de longa duração da conta.
-- **[ADR 004](../adr/004-eks-iam-roles-and-access-mode.md) — Roles do EKS persistentes, `authentication_mode = "API"`, node group gerenciado, OIDC provider antecipado.** Consolidou o padrão "roles IAM vivem em `bootstrap-iam`" já estabelecido pelo ADR 002, e adotou o modo de autenticação por access entries em vez do `aws-auth` ConfigMap legado.
-- **[ADR 005](../adr/005-budget-alert-persistence.md) — Budget alert persistente, sem SNS.** Aplicou o mesmo raciocínio de persistência do ADR 004 a um problema diferente: um alerta de custo só é útil se sobreviver ao próprio ciclo de destroy que ele existe para vigiar.
+- **[ADR 001](../adr/001-terraform-state-backend.md) — Remote backend with S3's native lock.** Avoids depending on an additional DynamoDB table, using the native lock (`use_lockfile`) available since Terraform 1.10.
+- **[ADR 002](../adr/002-aws-account-and-iam-bootstrap.md) — Dedicated AWS account and `bootstrap`/`bootstrap-iam` split.** Born from a real error: the first `apply` failed because the account inherited from a previous project had neither a traceable `lab-operator` nor `s3:CreateBucket`. Splitting into two modules (one for daily use, one admin-only) solved a second problem — `PowerUserAccess` blocks all IAM reads, so the state of IAM resources can't even be planned by the daily operator.
+- **[ADR 003](../adr/003-cloudlab-operator-sso-migration.md) — Migration to IAM Identity Center.** Replaced the operator's static `aws_iam_access_key` with temporary credentials via `aws sso login`, eliminating the account's last long-lived credential.
+- **[ADR 004](../adr/004-eks-iam-roles-and-access-mode.md) — Persistent EKS roles, `authentication_mode = "API"`, managed node group, OIDC provider ahead of time.** Consolidated the "IAM roles live in `bootstrap-iam`" pattern already established by ADR 002, and adopted access-entries authentication mode instead of the legacy `aws-auth` ConfigMap.
+- **[ADR 005](../adr/005-budget-alert-persistence.md) — Persistent budget alert, no SNS.** Applied the same persistence reasoning from ADR 004 to a different problem: a cost alert is only useful if it survives the very destroy cycle it exists to watch over.
 
-**O fio condutor dos cinco ADRs:** infraestrutura efêmera por padrão, com exceções expressas e documentadas — nunca implícitas. Toda vez que algo precisou persistir (state, identidade, roles, alerta de custo), isso foi uma decisão registrada, não um esquecimento.
+**The common thread across the five ADRs:** ephemeral infrastructure by default, with explicit and documented exceptions — never implicit. Whenever something needed to persist (state, identity, roles, cost alert), that was a recorded decision, not an oversight.
 
-## Como validamos
+## How we validated it
 
-Seguindo o padrão de "validação funcional pós-apply" (`docs/engineering-standards.md`, seção 11) — `describe-*` prova que o recurso existe, não que funciona:
+Following the "post-apply functional validation" standard (`docs/engineering-standards.md`, section 11) — `describe-*` proves the resource exists, not that it works:
 
-- **Rede:** [`docs/runbooks/validate/validate-vpc-network.md`](../runbooks/validate/validate-vpc-network.md) — instância EC2 efêmera na subnet privada confirma egress real via NAT (SSM-only, sem bastion).
-- **EKS:** [`docs/runbooks/validate/validate-eks-cluster.md`](../runbooks/validate/validate-eks-cluster.md) — kubeconfig efêmero, pod real agendado e executado num node spot, logs conferidos.
-- **Budget alert:** [`docs/runbooks/validate/validate-budget-alert.md`](../runbooks/validate/validate-budget-alert.md) — configuração confirmada via API; documenta a limitação de que a AWS Budgets recalcula gasto no próprio schedule, então o disparo real do alerta não pode ser forçado sob demanda.
+- **Network:** [`docs/runbooks/validate/validate-vpc-network.md`](../runbooks/validate/validate-vpc-network.md) — an ephemeral EC2 instance in the private subnet confirms real egress via NAT (SSM-only, no bastion).
+- **EKS:** [`docs/runbooks/validate/validate-eks-cluster.md`](../runbooks/validate/validate-eks-cluster.md) — ephemeral kubeconfig, real pod scheduled and run on a spot node, logs checked.
+- **Budget alert:** [`docs/runbooks/validate/validate-budget-alert.md`](../runbooks/validate/validate-budget-alert.md) — configuration confirmed via API; documents the limitation that AWS Budgets recalculates spend on its own schedule, so the actual alert firing can't be forced on demand.
 
-## Lições aprendidas
+## Lessons learned
 
-- **`PowerUserAccess` bloqueia leitura de IAM, não só escrita.** `iam:GetRole`, `iam:GetInstanceProfile` e `iam:PassRole` retornam `AccessDenied` para o operador diário — qualquer recurso que precise passar uma role (instance profile, cluster EKS) exige uma policy inline estreita, escopada por ARN, aplicada via sessão admin.
-- **CloudShell tem só 1 GB de `$HOME` persistente.** Rodar `terraform init` em vários módulos na mesma sessão sem plugin cache compartilhado esgota o disco.
-- **Credenciais estáticas em `~/.aws/credentials` vencem `sso_session` do mesmo profile em `~/.aws/config`.** Um profile SSO mal configurado com uma entrada estática antiga produz um `InvalidClientTokenId` confuso, não um erro óbvio de autenticação.
-- **Operações manuais fora do fluxo assistido merecem checagem cruzada.** Um `destroy` manual de teste em `envs/lab` só foi confirmado como seguro comparando `terraform state list` com `aws ec2 describe-vpcs` antes de qualquer ação destrutiva.
-- **A AWS Budgets não recalcula em tempo real.** Validação funcional de custo tem um teto: dá para provar que a configuração está correta, não que o alerta dispara — a prova final só vem organicamente, com o uso real da conta.
+- **`PowerUserAccess` blocks IAM reads, not just writes.** `iam:GetRole`, `iam:GetInstanceProfile`, and `iam:PassRole` return `AccessDenied` for the daily operator — any resource that needs to pass a role (instance profile, EKS cluster) requires a narrow inline policy, scoped by ARN, applied via an admin session.
+- **CloudShell has only 1 GB of persistent `$HOME`.** Running `terraform init` across several modules in the same session without shared plugin cache exhausts disk space.
+- **Static credentials in `~/.aws/credentials` take precedence over the same profile's `sso_session` in `~/.aws/config`.** A misconfigured SSO profile with a stale static entry produces a confusing `InvalidClientTokenId` instead of an obvious authentication error.
+- **Manual operations outside the assisted flow deserve cross-checking.** A manual test `destroy` in `envs/lab` was only confirmed safe by comparing `terraform state list` against `aws ec2 describe-vpcs` before any destructive action.
+- **AWS Budgets does not recalculate in real time.** Functional cost validation has a ceiling: you can prove the configuration is correct, not that the alert fires — the final proof only comes organically, with real account usage.
 
-## Estado final da fase
+## Final state of the phase
 
-- Critério de conclusão cumprido: `terraform destroy` completo em `envs/lab` seguido de `apply` limpo, sem passos manuais, repetido com sucesso para VPC, EKS e (agora, indiretamente) o budget alert em `bootstrap-iam`.
-- Infraestrutura de pé entre sessões, por design: bucket de state, IAM Identity Center (permission set + roles do EKS + role de smoke test) e o budget alert — todos sem custo recorrente relevante.
-- `terraform/envs/lab/` (VPC + EKS) destruído ao final de cada sessão de teste.
+- Completion criterion met: a complete `terraform destroy` in `envs/lab` followed by a clean `apply`, with no manual steps, repeated successfully for VPC, EKS, and (now, indirectly) the budget alert in `bootstrap-iam`.
+- Infrastructure left standing between sessions, by design: state bucket, IAM Identity Center (permission set + EKS roles + smoke-test role), and the budget alert — all with no relevant recurring cost.
+- `terraform/envs/lab/` (VPC + EKS) destroyed at the end of every test session.
 - PRs: [#5](https://github.com/alisson92/minitube/pull/5) (VPC), [#7](https://github.com/alisson92/minitube/pull/7) (EKS), [#8](https://github.com/alisson92/minitube/pull/8) (budget alert).
 
-## Próxima fase
+## Next phase
 
-[Fase 2 — Aplicação](../../CLAUDE.md#fases-do-projeto): API mínima + job de transcodificação (FFmpeg → HLS → S3), critério de conclusão: um vídeo de teste transcodificado com segmentos legíveis no S3.
+[Phase 2 — Application](../../CLAUDE.md#fases-do-projeto): minimal API + transcoding job (FFmpeg → HLS → S3), completion criterion: a test video transcoded with readable segments in S3.

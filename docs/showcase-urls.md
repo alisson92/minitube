@@ -1,50 +1,50 @@
-# Inventário de URLs demonstráveis
+# Inventory of demonstrable URLs
 
-> Checklist de apoio para capturar prints/evidências do MiniTube rodando de verdade, como preparação para a divulgação em portfólio/LinkedIn combinada no [ADR 007](adr/007-argocd-gitops-bootstrap.md) (decisão de tornar o repositório público **deliberadamente ao final do projeto**, não incidentalmente). Não é um runbook operacional — para subir/derrubar o ambiente ou operá-lo no dia a dia, ver [`docs/runbooks/run-the-project.md`](runbooks/run-the-project.md).
+> Supporting checklist for capturing real screenshots/evidence of MiniTube running, in preparation for the portfolio/LinkedIn promotion combined in [ADR 007](adr/007-argocd-gitops-bootstrap.md) (the decision to make the repository public **deliberately at the end of the project**, not incidentally). Not an operational runbook — for standing up/tearing down the environment or day-to-day operation, see [`docs/runbooks/run-the-project.md`](runbooks/run-the-project.md).
 
-## Página de arquitetura (sempre disponível, mesmo com `envs/lab` destruído)
+## Architecture page (always available, even with `envs/lab` destroyed)
 
-`https://system-design.minitube.projetodevops.com.br` — versão interativa dos diagramas de `docs/architecture.md`. Diferente das três URLs abaixo, **não depende de `envs/lab` estar de pé**: é servida por `terraform/bootstrap/architecture-site.tf` (S3 + CloudFront, persistente por design, mesma categoria do bucket de state/ECR/hosted zone — ver [ADR 017](adr/017-persistent-architecture-showcase-site.md)). Ideal como o link principal do post, funciona mesmo entre sessões.
+`https://system-design.minitube.projetodevops.com.br` — an interactive version of the diagrams in `docs/architecture.md`. Unlike the three URLs below, **it doesn't depend on `envs/lab` being up**: it's served by `terraform/bootstrap/architecture-site.tf` (S3 + CloudFront, persistent by design, same category as the state bucket/ECR/hosted zone — see [ADR 017](adr/017-persistent-architecture-showcase-site.md)). Ideal as the post's main link, works even between sessions.
 
-## URLs públicas (exigem `envs/lab` aplicado)
+## Public URLs (require `envs/lab` applied)
 
-| UI | URL | O que mostra | Usuário | Senha |
+| UI | URL | What it shows | Username | Password |
 | --- | --- | --- | --- | --- |
-| App (produto) | `https://app.minitube.projetodevops.com.br` (`terraform output -raw app_url`) | O produto em si: upload, transcodificação e reprodução de vídeo via HLS, servido pelo CloudFront | — | — |
-| ArgoCD | `https://argocd.minitube.projetodevops.com.br` | GitOps de ponta a ponta: todas as `Application`s `Synced`/`Healthy`, reconciliadas a partir do Git | `admin` | `cd terraform/envs/lab && terraform output -raw argocd_admin_password` — ver [`access-argocd-ui.md`](runbooks/access-argocd-ui.md) |
-| Grafana | `https://grafana.minitube.projetodevops.com.br` | Dashboard "dia do jogo" (latência, saturação/HPA, erros), Explore para Loki | `admin` | `cd terraform/envs/lab && terraform output -raw grafana_admin_password` |
+| App (product) | `https://app.minitube.projetodevops.com.br` (`terraform output -raw app_url`) | The product itself: upload, transcoding, and video playback via HLS, served by CloudFront | — | — |
+| Argo CD | `https://argocd.minitube.projetodevops.com.br` | GitOps end to end: every `Application` `Synced`/`Healthy`, reconciled from Git | `admin` | `cd terraform/envs/lab && terraform output -raw argocd_admin_password` — see [`access-argocd-ui.md`](runbooks/access-argocd-ui.md) |
+| Grafana | `https://grafana.minitube.projetodevops.com.br` | "Game day" dashboard (latency, saturation/HPA, errors), Explore for Loki | `admin` | `cd terraform/envs/lab && terraform output -raw grafana_admin_password` |
 
-Todas as três URLs vêm do mesmo domínio próprio (`var.domain_name`, hosted zone Route 53 em `terraform/bootstrap/dns.tf`), com certificado ACM wildcard — HTTPS válido nas três. Só ficam no ar enquanto `envs/lab` estiver aplicado (ao contrário da página de arquitetura acima).
+All three URLs come from the same custom domain (`var.domain_name`, Route 53 hosted zone in `terraform/bootstrap/dns.tf`), with a wildcard ACM certificate — valid HTTPS on all three. They only stay up while `envs/lab` is applied (unlike the architecture page above).
 
-## O que não tem URL própria
+## What doesn't have its own URL
 
-Sem Ingress dedicado — acessíveis só por dentro do Grafana ou via `port-forward` manual (kubeconfig via `aws eks update-kubeconfig`, mesmo padrão usado em `docs/runbooks/incident-response.md`):
+No dedicated Ingress — reachable only from inside Grafana or via a manual `port-forward` (kubeconfig via `aws eks update-kubeconfig`, the same pattern used in `docs/runbooks/incident-response.md`):
 
-- **Prometheus** — datasource default do Grafana (Explore/dashboards já cobrem a maioria dos casos). Para acesso direto:
+- **Prometheus** — Grafana's default datasource (Explore/dashboards already cover most cases). For direct access:
   ```bash
   kubectl -n minitube-platform port-forward svc/kube-prometheus-stack-prometheus 9090:9090
   ```
-- **Alertmanager** — nome de serviço padrão do chart (`kube-prometheus-stack-alertmanager`, porta `9093`), não exercitado neste projeto até agora:
+- **Alertmanager** — the chart's default service name (`kube-prometheus-stack-alertmanager`, port `9093`), not exercised in this project so far:
   ```bash
   kubectl -n minitube-platform port-forward svc/kube-prometheus-stack-alertmanager 9093:9093
   ```
-- **Loki** — `gateway.enabled: false` (`gitops/platform/loki/values.yaml`); nunca teve exposição própria, só datasource do Grafana (aba Explore) ou:
+- **Loki** — `gateway.enabled: false` (`gitops/platform/loki/values.yaml`); never had its own exposure, only Grafana's datasource (Explore tab) or:
   ```bash
   kubectl -n minitube-platform port-forward svc/loki 3100:3100
   ```
 
-## Checklist de evidências a capturar
+## Evidence checklist to capture
 
-**Lado cliente** (`app.<domínio>`):
-- [ ] Player reproduzindo um vídeo real, upload feito de ponta a ponta (`POST /api/videos` → transcodificação → HLS)
-- [ ] Aba Network do navegador mostrando os segmentos `.ts`/`.m3u8` vindo do CloudFront, com header `X-Cache` confirmando cache hit (mesma checagem de `scripts/validate-cloudfront-dns-tls.sh`)
+**Client side** (`app.<domain>`):
+- [ ] Player streaming a real video, uploaded end to end (`POST /api/videos` → transcoding → HLS)
+- [ ] Browser's Network tab showing `.ts`/`.m3u8` segments coming from CloudFront, with the `X-Cache` header confirming a cache hit (same check as `scripts/validate-cloudfront-dns-tls.sh`)
 
-**Lado servidor** (o "por baixo dos panos" de engenharia):
-- [ ] Dashboard "dia do jogo" no Grafana durante uma carga real de k6 (`load/run-waves-from-ec2.sh` é o cenário mais visual — sobe e desce em ondas)
-- [ ] HPA escalando ao vivo: `kubectl -n minitube-app get hpa api -w` (esperado: 2 → 3 → 5 → 6 réplicas subindo, depois voltando a 2 — ver [`run-k6-waves.md`](runbooks/load/run-k6-waves.md))
-- [ ] ArgoCD com todas as `Application`s `Synced`/`Healthy`
-- [ ] Hit ratio do CDN: o painel do dashboard mostra `No data` por padrão (requer "Additional metrics" do CloudFront, custo extra não habilitado — ver `docs/phases/006-game-day.md`); se quiser esse número no print, é o item 3 dos "Próximos passos" do `CLAUDE.md` — senão, usar o header `X-Cache` como evidência equivalente
+**Server side** (the engineering "under the hood"):
+- [ ] "Game day" dashboard in Grafana during a real k6 load run (`load/run-waves-from-ec2.sh` is the most visual scenario — rises and falls in waves)
+- [ ] HPA scaling live: `kubectl -n minitube-app get hpa api -w` (expected: 2 → 3 → 5 → 6 replicas climbing, then back down to 2 — see [`run-k6-waves.md`](runbooks/load/run-k6-waves.md))
+- [ ] Argo CD with every `Application` `Synced`/`Healthy`
+- [ ] CDN hit ratio: the dashboard panel shows `No data` by default (requires CloudFront's "Additional metrics," extra cost not enabled — see `docs/phases/006-game-day.md`); if you want that number in the screenshot, it's item 3 of `CLAUDE.md`'s "Next steps" — otherwise, use the `X-Cache` header as equivalent evidence
 
-## Nota sobre as senhas
+## Note on passwords
 
-Ambas (ArgoCD, Grafana) são geradas pelo Terraform e ficam estáveis **dentro da sessão atual** — regeneram só quando `envs/lab` é destruído e recriado. Se o ambiente for recriado antes do post ser publicado, reexecutar os comandos `terraform output` acima.
+Both (Argo CD, Grafana) are generated by Terraform and stay stable **within the current session** — they only regenerate when `envs/lab` is destroyed and recreated. If the environment gets recreated before the post is published, rerun the `terraform output` commands above.

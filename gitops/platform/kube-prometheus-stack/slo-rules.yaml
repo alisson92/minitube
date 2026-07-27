@@ -19,7 +19,7 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "API sem réplicas disponíveis por mais de 5 minutos"
+            summary: "API has had no available replicas for more than 5 minutes"
         - alert: APILatencyWarning
           # 250ms sits comfortably above every normal-operation p95 observed
           # (baseline: 50-190ms; post-HPA breakpoint: 48ms) -- fires while
@@ -29,7 +29,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Latência p95 da API acima de 250ms por mais de 5 minutos"
+            summary: "API p95 latency above 250ms for more than 5 minutes"
         - alert: APILatencyCritical
           # 800ms matches the confirmed onset of real queueing at the HPA's
           # maxReplicas:6 ceiling -- genuine backpressure, not errors (0%
@@ -39,4 +39,4 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "Latência p95 da API acima de 800ms por mais de 5 minutos -- provável saturação no teto atual do HPA (maxReplicas: 6)"
+            summary: "API p95 latency above 800ms for more than 5 minutes -- likely saturation at the HPA's current ceiling (maxReplicas: 6)"
