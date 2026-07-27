@@ -19,6 +19,8 @@ A resposta curta: cache na borda, camadas que filtram tráfego e uma origem que 
 | Observabilidade | Prometheus, Grafana, Loki, SLOs |
 | Testes de carga | k6 (ondas simulando a torcida) |
 
+Arquitetura detalhada, com diagramas (rede/borda, GitOps, fluxo de vídeo, autoscaling/observabilidade) e o porquê de cada escolha: [`docs/architecture.md`](docs/architecture.md).
+
 ## Princípio central: infraestrutura efêmera
 
 O ambiente sobe (`terraform apply`), é testado e observado, e **é destruído ao final de cada sessão** (`terraform destroy`) — o EKS cobra pelo control plane mesmo ocioso. Recriar tudo do zero deve ser indolor: esse é o teste de qualidade do código.
