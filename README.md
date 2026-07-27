@@ -2,50 +2,53 @@
 
 [![CI](https://github.com/alisson92/minitube/actions/workflows/ci.yml/badge.svg)](https://github.com/alisson92/minitube/actions/workflows/ci.yml)
 
-Uma mini plataforma de streaming de vídeo construída de ponta a ponta como projeto de estudo em **DevOps e SRE** — inspirada na pergunta: *"como o YouTube aguentou o recorde de público das lives da CazéTV na Copa do Mundo?"*
+A miniature video streaming platform built end to end as a **DevOps and SRE** learning project — inspired by the question: *"how did YouTube hold up under the record simultaneous audience of CazéTV's World Cup broadcasts?"*
 
-A resposta curta: cache na borda, camadas que filtram tráfego e uma origem que escala horizontalmente. Este projeto reproduz essa arquitetura em miniatura na AWS e a submete ao seu próprio "dia do jogo" com testes de carga. A história completa está em [`docs/000-motivation.md`](docs/000-motivation.md).
+The short answer: edge caching, layers that filter out traffic, and an origin that scales horizontally. This project reproduces that architecture in miniature on AWS and puts it through its own "game day" load tests. The full story is in [`docs/000-motivation.md`](docs/000-motivation.md).
 
 ## Stack
 
-| Camada | Tecnologia |
+| Layer | Technology |
 | ------ | ---------- |
-| Infraestrutura como código | Terraform (backend remoto em S3) |
-| Orquestração | Kubernetes (EKS, node group spot) |
-| Borda / CDN | CloudFront servindo segmentos HLS a partir do S3 |
-| Vídeo | FFmpeg (transcodificação → HLS) |
-| GitOps | ArgoCD + Kustomize/Helm |
-| DNS e TLS | Route 53, external-dns, cert-manager (domínio próprio) |
-| Observabilidade | Prometheus, Grafana, Loki, SLOs |
-| Testes de carga | k6 (ondas simulando a torcida) |
+| Infrastructure as code | Terraform (remote backend in S3) |
+| Orchestration | Kubernetes (EKS, spot node group) |
+| Edge / CDN | CloudFront serving HLS segments from S3 |
+| Video | FFmpeg (transcoding → HLS) |
+| GitOps | Argo CD + Kustomize/Helm |
+| DNS and TLS | Route 53, external-dns, cert-manager (own domain) |
+| Observability | Prometheus, Grafana, Loki, SLOs |
+| Load testing | k6 (waves simulating the crowd) |
 
-Arquitetura detalhada, com diagramas (rede/borda, GitOps, fluxo de vídeo, autoscaling/observabilidade) e o porquê de cada escolha: [`docs/architecture.md`](docs/architecture.md).
+Detailed architecture, with diagrams (network/edge, GitOps, video flow, autoscaling/observability) and the reasoning behind each choice: [`docs/architecture.md`](docs/architecture.md).
 
-## Princípio central: infraestrutura efêmera
+## Core principle: ephemeral infrastructure
 
-O ambiente sobe (`terraform apply`), é testado e observado, e **é destruído ao final de cada sessão** (`terraform destroy`) — o EKS cobra pelo control plane mesmo ocioso. Recriar tudo do zero deve ser indolor: esse é o teste de qualidade do código.
+The environment comes up (`terraform apply`), gets tested and observed, and **is destroyed at the end of every session** (`terraform destroy`) — EKS bills for the control plane even when idle. Recreating everything from scratch should be painless: that's the code's real quality test.
 
-## Estrutura
+## Layout
 
 ```
 terraform/
-  bootstrap/       # bucket S3 de state (versionado, criptografado, lock nativo); repositórios ECR
-  bootstrap-iam/   # permission set do operador (cloudlab-operator, via IAM Identity Center), roles do EKS, budget alert
-  modules/         # vpc, eks -- módulos reutilizáveis chamados por envs/lab
-  envs/lab/        # VPC, EKS, S3 de vídeo, IAM da app, CloudFront, DNS
-gitops/      # manifests da app (Kustomize) e da plataforma (Helm via ArgoCD Application multi-source), reconciliados pelo ArgoCD
-app/         # API (FastAPI) e transcoder (FFmpeg) + Dockerfiles
-load/        # cenários k6
-chaos/       # experimentos de caos (kill pod, drain node, derrubar observabilidade)
-docs/        # motivação, ADRs, runbooks e retrospectos por fase
-Makefile     # make validate-all -- roda as 6 checagens funcionais em ordem, sem parar no primeiro erro
-.github/workflows/  # CI: fmt/validate/tflint, trivy/gitleaks, yamllint/shellcheck/ruff/links -- só checagens estáticas, sem credenciais AWS
+  bootstrap/       # versioned/encrypted S3 state bucket with native locking; ECR repositories; persistent architecture showcase site
+  bootstrap-iam/   # operator permission set (cloudlab-operator, via IAM Identity Center), EKS roles, budget alert
+  modules/         # vpc, eks -- reusable modules called by envs/lab
+  envs/lab/        # VPC, EKS, video S3, app IAM, CloudFront, DNS
+gitops/      # app manifests (Kustomize) and platform manifests (Helm via multi-source Argo CD Applications), reconciled by Argo CD
+app/         # API (FastAPI) and transcoder (FFmpeg) + Dockerfiles
+site/        # static architecture showcase page, served independently of envs/lab
+load/        # k6 scenarios
+chaos/       # chaos experiments (kill pod, drain node, take down observability)
+docs/        # motivation, ADRs, runbooks, and per-phase retrospectives
+Makefile     # make validate-all -- runs the 6 functional checks in order, without stopping at the first failure
+.github/workflows/  # CI: fmt/validate/tflint, trivy/gitleaks, yamllint/shellcheck/ruff/links -- static checks only, no AWS credentials
 ```
 
-## Como começar
+## Getting started
 
-A sequência completa — de uma conta AWS zerada até `app.<domínio>` servindo vídeo, e de volta a zero ao final da sessão — está em [`docs/runbooks/run-the-project.md`](docs/runbooks/run-the-project.md). Depois do `terraform apply`, `make validate-all` roda todas as checagens funcionais de uma vez (`make help` lista as individuais).
+The full sequence — from a blank AWS account to `app.<domain>` serving video, and back to zero at the end of the session — is in [`docs/runbooks/run-the-project.md`](docs/runbooks/run-the-project.md). After `terraform apply`, `make validate-all` runs every functional check at once (`make help` lists the individual ones).
 
 ## Status
 
-✅ **Roadmap completo — todas as 6 fases encerradas.** Fundação Terraform: backend remoto, VPC, EKS com node group spot e budget alert ([`docs/phases/001-terraform-foundation.md`](docs/phases/001-terraform-foundation.md)). Aplicação: API (FastAPI) + transcoder (FFmpeg) como Job no EKS, gravando HLS no S3 ([`docs/phases/002-application.md`](docs/phases/002-application.md)). GitOps: ArgoCD reconciliando `gitops/app/` e `gitops/platform/` a partir do Git, sem nenhum `kubectl apply` manual ([`docs/phases/003-gitops.md`](docs/phases/003-gitops.md)). Borda/DNS/TLS: CloudFront + Route 53 + cert-manager servindo `app.<domínio>` com HTTPS válido ([`docs/phases/004-edge-dns-tls.md`](docs/phases/004-edge-dns-tls.md)). Observabilidade: dashboard "dia do jogo" com hit ratio de CDN, latência p95/p99, saturação e erros ([`docs/phases/005-observability.md`](docs/phases/005-observability.md)). Dia do jogo: testes de carga k6, HPA por CPU e experimentos de caos, com relatório final de "o que quebrou primeiro" ([`docs/phases/006-game-day.md`](docs/phases/006-game-day.md)). Trabalho futuro é opcional — ver "Próximos passos" no [`CLAUDE.md`](CLAUDE.md).
+✅ **Roadmap complete — all 6 phases closed.** Terraform foundation: remote backend, VPC, EKS with a spot node group and a budget alert ([`docs/phases/001-terraform-foundation.md`](docs/phases/001-terraform-foundation.md)). Application: API (FastAPI) + transcoder (FFmpeg) as an EKS Job, writing HLS to S3 ([`docs/phases/002-application.md`](docs/phases/002-application.md)). GitOps: Argo CD reconciling `gitops/app/` and `gitops/platform/` from Git, with zero manual `kubectl apply` ([`docs/phases/003-gitops.md`](docs/phases/003-gitops.md)). Edge/DNS/TLS: CloudFront + Route 53 + cert-manager serving `app.<domain>` over valid HTTPS ([`docs/phases/004-edge-dns-tls.md`](docs/phases/004-edge-dns-tls.md)). Observability: "game day" dashboard with CDN hit ratio, p95/p99 latency, saturation, and errors ([`docs/phases/005-observability.md`](docs/phases/005-observability.md)). Game day: k6 load tests, CPU-based HPA, and chaos experiments, with a final "what broke first" report ([`docs/phases/006-game-day.md`](docs/phases/006-game-day.md)). Further work is optional — see "Next steps" in [`CLAUDE.md`](CLAUDE.md).
+
+Live, interactive system-design walkthrough: **[system-design.minitube.projetodevops.com.br](https://system-design.minitube.projetodevops.com.br)** — stays up even with `envs/lab` destroyed.
