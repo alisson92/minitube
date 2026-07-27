@@ -1,51 +1,51 @@
-# 012 — HPA por CPU no Deployment `api`, metrics-server via GitOps
+# 012 — CPU-based HPA on the `api` Deployment, metrics-server via GitOps
 
 ## Status
 
-Aceito
+Accepted
 
-## Contexto
+## Context
 
-O `CLAUDE.md` já previa, na Fase 6, decidir entre HPA e Cluster Autoscaler/Karpenter "guiado por carga real do k6" — deliberadamente adiado da Fase 5 (ADR 011, decisão 1) para não ser engenharia antecipada sem dado.
+`CLAUDE.md` already anticipated, in Phase 6, deciding between HPA and Cluster Autoscaler/Karpenter "guided by real k6 load" — deliberately deferred from Phase 5 (ADR 011, decision 1) so as not to be premature engineering without data.
 
-O dado chegou nesta sessão: o teste de breakpoint (`load/k6/breakpoint.js`), rodado de dentro da própria VPC via `load/run-breakpoint-from-ec2.sh` (ver `docs/runbooks/load/run-k6-breakpoint.md` para o porquê de precisar rodar de dentro da AWS — testes locais via WSL2/rede residencial abortavam cedo demais por ruído de rede, mascarando qualquer sinal real), encontrou um gargalo genuíno e confirmado por três fontes independentes na mesma janela de tempo (Prometheus + `kube_pod_container_status_restarts_total`):
+The data arrived in this session: the breakpoint test (`load/k6/breakpoint.js`), run from inside the VPC itself via `load/run-breakpoint-from-ec2.sh` (see `docs/runbooks/load/run-k6-breakpoint.md` for why it needs to run from inside AWS — local tests via WSL2/home network aborted too early due to network noise, masking any real signal), found a genuine bottleneck confirmed by three independent sources within the same time window (Prometheus + `kube_pod_container_status_restarts_total`):
 
-- **CPU do pod `api` sobe de forma monotônica e satura ~98% do `limits.cpu: 500m`** exatamente no momento em que o teste aborta.
-- **A latência interna da própria API** (`http_request_duration_seconds`, instrumentada via `prometheus-fastapi-instrumentator`, medida dentro do pod — não pelo k6) fica estável em ~95ms de p95 por mais de 6 minutos e só dispara nos últimos ~60 segundos, acompanhando a curva de CPU.
-- **Memória fica estável** (~100-120MB de um limite de `256Mi`) e **os 3 nodes do node group ficam com folga enorme** (o mais ocupado chega a só ~35% de utilização) — descartando memória e capacidade de node como causa.
+- **CPU on the `api` pod rises monotonically and saturates ~98% of `limits.cpu: 500m`** exactly when the test aborts.
+- **The API's own internal latency** (`http_request_duration_seconds`, instrumented via `prometheus-fastapi-instrumentator`, measured inside the pod — not by k6) stays stable at ~95ms p95 for over 6 minutes and only spikes in the last ~60 seconds, tracking the CPU curve.
+- **Memory stays stable** (~100-120MB out of a `256Mi` limit) and **the node group's 3 nodes have huge headroom** (the busiest reaches only ~35% utilization) — ruling out memory and node capacity as the cause.
 
-Ou seja: o teto é o limite de CPU da única réplica, não o node group. Isso decide a escolha entre HPA e Cluster Autoscaler/Karpenter com dado real, não suposição.
+In other words: the ceiling is the single replica's CPU limit, not the node group. This decides the choice between HPA and Cluster Autoscaler/Karpenter with real data, not assumption.
 
-## Decisões
+## Decisions
 
-### 1. HPA por CPU, não Cluster Autoscaler/Karpenter
+### 1. CPU-based HPA, not Cluster Autoscaler/Karpenter
 
-Cluster Autoscaler/Karpenter resolveria falta de capacidade de *node* — não é o problema encontrado (nodes com folga confirmada). HPA por CPU no Deployment `api` ataca exatamente o gargalo medido: mais réplicas distribuem a mesma CPU agregada entre mais pods, dentro de nodes que já têm espaço de sobra. Cluster Autoscaler/Karpenter continua fora de escopo até o HPA algum dia escalar réplicas o suficiente para esgotar os 3 nodes atuais — cenário distante da folga observada.
+Cluster Autoscaler/Karpenter would solve a lack of *node* capacity — that's not the problem found (nodes confirmed with headroom). A CPU-based HPA on the `api` Deployment attacks exactly the measured bottleneck: more replicas spread the same aggregate CPU across more pods, within nodes that already have room to spare. Cluster Autoscaler/Karpenter stays out of scope until the day the HPA scales replicas enough to exhaust the current 3 nodes — a scenario far from the observed headroom.
 
-### 2. metrics-server via GitOps (Application multi-source), não `aws_eks_addon`
+### 2. metrics-server via GitOps (multi-source Application), not `aws_eks_addon`
 
-HPA por CPU depende da API `metrics.k8s.io`, que o cluster não tinha (confirmado: nenhum `aws_eks_addon`, nenhuma Application ArgoCD, zero menções no repositório antes desta sessão). Instalado como mais um subdiretório `gitops/platform/metrics-server/` + Application multi-source, a mesma forma já usada para `aws-load-balancer-controller`/`external-dns`/`cert-manager` (Fase 4) e `ebs-csi-driver` (Fase 5) — este último já havia registrado a mesma justificativa (ADR 011, decisão 3): manter um único mecanismo de instalação de add-on de plataforma no repositório, em vez de dois mecanismos concorrentes (`aws_eks_addon` da AWS vs. GitOps).
+CPU-based HPA depends on the `metrics.k8s.io` API, which the cluster didn't have (confirmed: no `aws_eks_addon`, no ArgoCD Application, zero mentions in the repository before this session). Installed as another `gitops/platform/metrics-server/` subdirectory + multi-source Application, the same form already used for `aws-load-balancer-controller`/`external-dns`/`cert-manager` (Phase 4) and `ebs-csi-driver` (Phase 5) — the latter had already recorded the same justification (ADR 011, decision 3): keep a single platform add-on installation mechanism in the repository, instead of two competing mechanisms (AWS's `aws_eks_addon` vs. GitOps).
 
-Sem IRSA role, sem PVC, sem `finalizers` — metrics-server só faz *scraping* local dos `kubelet`s dos próprios nodes, nenhuma chamada à API da AWS. Mesma forma mínima já usada por `promtail` (Fase 5).
+No IRSA role, no PVC, no `finalizers` — metrics-server only does local *scraping* of the nodes' own `kubelet`s, no calls to the AWS API. Same minimal form already used by `promtail` (Phase 5).
 
 ### 3. `--kubelet-insecure-tls`
 
-Os certificados de *serving* do `kubelet` em nodes gerenciados pelo EKS não carregam os SANs que a verificação TLS padrão do metrics-server exige — um gap conhecido e documentado pela própria AWS para este componente. A alternativa (configurar uma CA própria e reemitir certificados de `kubelet` compatíveis) é desproporcional para um cluster efêmero, recriado do zero a cada sessão. Aceito como trade-off padrão da comunidade: esse tráfego nunca sai do plano de controle interno do cluster (VPC privada, security groups do EKS) — não é uma superfície exposta externamente.
+The *serving* certificates of the `kubelet` on EKS-managed nodes don't carry the SANs that metrics-server's default TLS verification requires — a known gap, documented by AWS itself for this component. The alternative (setting up a dedicated CA and reissuing compatible `kubelet` certificates) is disproportionate for an ephemeral cluster, recreated from scratch every session. Accepted as the standard community trade-off: this traffic never leaves the cluster's internal control plane (private VPC, EKS security groups) — it's not an externally exposed surface.
 
 ### 4. `minReplicas: 2` / `maxReplicas: 6` / `averageUtilization: 70`
 
-- **`minReplicas: 2`**: elimina o ponto único de falha que `replicas: 1` representa hoje — um dos gatilhos de alerta obrigatório do próprio padrão de trabalho deste projeto (`replicas: 1` sem PDB). Só faz sentido combinado com a decisão 5 abaixo.
-- **`maxReplicas: 6`**: ~6x a carga que saturou uma única réplica no teste real (~125-130 req/s combinados de `/api/healthz` + `/api/videos/{id}`, interpolado a partir do ponto da rampa onde a CPU saturou). O node group (3× `t3.medium`, folga confirmada por dado real) tem espaço de sobra para isso sem se aproximar de qualquer limite de node.
-- **`averageUtilization: 70`**: valor-padrão consolidado na comunidade Kubernetes. Calculado sobre `requests.cpu: 100m` (não o `limits.cpu: 500m` que satura) — dispara scale-out em ~70m de uso médio por pod, bem antes de qualquer réplica se aproximar do limite que causou a degradação observada.
+- **`minReplicas: 2`**: eliminates the single point of failure that `replicas: 1` represents today — one of this project's own mandatory alert triggers (`replicas: 1` without a PDB). Only makes sense combined with decision 5 below.
+- **`maxReplicas: 6`**: ~6x the load that saturated a single replica in the real test (~125-130 combined req/s from `/api/healthz` + `/api/videos/{id}`, interpolated from the point on the ramp where CPU saturated). The node group (3× `t3.medium`, headroom confirmed by real data) has plenty of room for this without getting close to any node limit.
+- **`averageUtilization: 70`**: the value consolidated as the community standard for Kubernetes. Calculated over `requests.cpu: 100m` (not the `limits.cpu: 500m` that saturates) — triggers scale-out at ~70m average usage per pod, well before any replica gets close to the limit that caused the observed degradation.
 
-### 5. PDB (`minAvailable: 1`) incluído junto com o HPA, não como item separado
+### 5. PDB (`minAvailable: 1`) included alongside the HPA, not as a separate item
 
-Nenhum PodDisruptionBudget existia no repositório antes desta sessão (confirmado por busca). Como o HPA leva o Deployment a rodar com múltiplas réplicas pela primeira vez, um PDB mínimo é extensão direta e de baixo risco do mesmo trabalho — sem ele, uma rotação de node (spot, sujeito a interrupção) ou um `rollout` concorrente poderiam derrubar todas as réplicas ao mesmo tempo, anulando o ganho de disponibilidade que `minReplicas: 2` pretende dar.
+No PodDisruptionBudget existed in the repository before this session (confirmed by search). Since the HPA leads the Deployment to run with multiple replicas for the first time, a minimal PDB is a direct, low-risk extension of the same work — without it, a node rotation (spot, subject to interruption) or a concurrent `rollout` could take down all replicas at once, negating the availability gain `minReplicas: 2` is meant to provide.
 
-### 6. `ignoreDifferences` no campo `/spec/replicas` da Application `app`
+### 6. `ignoreDifferences` on the `/spec/replicas` field of the `app` Application
 
-Toda Application deste projeto roda com `syncPolicy.automated.selfHeal = true`. Sem tratamento, o ArgoCD reverteria `spec.replicas` do Deployment `api` de volta ao valor estático do manifesto a cada sync, brigando com o HPA (que ajusta esse mesmo campo em tempo real via `scale` subresource). Resolvido com `ignoreDifferences` (`terraform/envs/lab/argocd.tf`, bloco `applications.app`) apontando para `apps/Deployment`, `name: api`, `jsonPointers: ["/spec/replicas"]` — o padrão documentado pela própria ArgoCD para exatamente este cenário (Deployment gerenciado por HPA). `gitops/app/deployment.yaml` mantém `replicas: 1` como está, valendo só como contagem inicial antes do HPA assumir o campo.
+Every Application in this project runs with `syncPolicy.automated.selfHeal = true`. Without handling this, ArgoCD would revert the `api` Deployment's `spec.replicas` back to the manifest's static value on every sync, fighting the HPA (which adjusts that same field in real time via the `scale` subresource). Resolved with `ignoreDifferences` (`terraform/envs/lab/argocd.tf`, `applications.app` block) pointing at `apps/Deployment`, `name: api`, `jsonPointers: ["/spec/replicas"]` — the pattern documented by ArgoCD itself for exactly this scenario (a Deployment managed by an HPA). `gitops/app/deployment.yaml` keeps `replicas: 1` as-is, valid only as the initial count before the HPA takes over the field.
 
-## Validação
+## Validation
 
-Ver `docs/runbooks/load/run-k6-breakpoint.md` para o resultado da revalidação com `load/run-breakpoint-from-ec2.sh` após esta implementação — o teste funcional deste entregável é o HPA escalando réplicas sob carga real e o ponto de quebra subindo, não apenas o `apply` limpo e os objetos existindo com os atributos certos (padrão de validação funcional pós-apply, `docs/engineering-standards.md` seção 11).
+See `docs/runbooks/load/run-k6-breakpoint.md` for the revalidation result with `load/run-breakpoint-from-ec2.sh` after this implementation — the functional test for this deliverable is the HPA scaling replicas under real load and the breakpoint rising, not just a clean `apply` and the objects existing with the right attributes (post-apply functional validation pattern, `docs/engineering-standards.md` section 11).

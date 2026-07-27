@@ -1,107 +1,107 @@
-# 015 — Automação da limpeza da APIService órfã do metrics-server no destroy
+# 015 — Automating the cleanup of the orphaned metrics-server APIService on destroy
 
 ## Status
 
-Aceito
+Accepted
 
-## Contexto
+## Context
 
-Repetição do sintoma já documentado em [`docs/runbooks/run-the-project.md`](../runbooks/run-the-project.md)
-(seção "Se o `destroy` travar em `kubernetes_namespace_v1.argocd`/`.platform`"):
-`terraform destroy` de `envs/lab` travou em `kubernetes_namespace_v1.argocd`
-e `kubernetes_namespace_v1.platform` por 5+ minutos, terminando em
-`Error: context deadline exceeded`, logo depois do `helm uninstall` de
-`argocd-apps` (que podou a Application `metrics-server`).
+Repetition of the symptom already documented in [`docs/runbooks/run-the-project.md`](../runbooks/run-the-project.md)
+(section "If `destroy` hangs on `kubernetes_namespace_v1.argocd`/`.platform`"):
+`terraform destroy` of `envs/lab` got stuck on `kubernetes_namespace_v1.argocd`
+and `kubernetes_namespace_v1.platform` for 5+ minutes, ending in
+`Error: context deadline exceeded`, right after `helm uninstall` of
+`argocd-apps` (which pruned the `metrics-server` Application).
 
-Causa raiz (já diagnosticada na sessão que gerou o runbook, agora corrigida
-em código): destruir `helm_release.argocd_apps` remove a Application
-`metrics-server` do ArgoCD, que por sua vez desinstala o chart -- mas o
-`APIService` `v1beta1.metrics.k8s.io` (registro de API cluster-scoped, criado
-pelo chart, não gerenciado por Terraform nem pelo ArgoCD diretamente)
-sobrevive, apontando para um backend que não existe mais. Enquanto essa
-`APIService` quebrada existir, a descoberta de API do cluster inteiro falha
-(`DiscoveryFailed: metrics.k8s.io/v1beta1: stale GroupVersion discovery`), e
-o controller de finalização de namespace do Kubernetes -- que depende dessa
-descoberta completa -- trava para **qualquer** namespace em terminação, não
-só o do metrics-server. Isso bloqueia os dois namespaces geridos diretamente
-pelo Terraform (`kubernetes_namespace_v1.argocd`/`.platform`, necessários
-desde a decisão 12 do [ADR 011](011-observability-stack.md) para
+Root cause (already diagnosed in the session that produced the runbook, now fixed
+in code): destroying `helm_release.argocd_apps` removes the `metrics-server`
+Application from ArgoCD, which in turn uninstalls the chart -- but the
+`APIService` `v1beta1.metrics.k8s.io` (a cluster-scoped API registration, created
+by the chart, managed neither by Terraform nor directly by ArgoCD)
+survives, pointing to a backend that no longer exists. As long as this broken
+`APIService` exists, the entire cluster's API discovery fails
+(`DiscoveryFailed: metrics.k8s.io/v1beta1: stale GroupVersion discovery`), and
+Kubernetes's namespace-finalization controller -- which depends on this
+complete discovery -- hangs for **any** namespace in termination, not
+just the metrics-server's own. This blocks the two namespaces managed directly
+by Terraform (`kubernetes_namespace_v1.argocd`/`.platform`, needed
+since decision 12 of [ADR 011](011-observability-stack.md) for
 `kubernetes_secret_v1.grafana_admin`).
 
-Até esta sessão, a correção era só documentada como playbook manual: rodar
-`kubectl delete apiservice v1beta1.metrics.k8s.io`, depois reexecutar
-`terraform destroy`. Funcional, mas viola o objetivo de `destroy` correr do
-início ao fim numa única execução sem intervenção humana (mesmo objetivo já
-perseguido pelo [ADR 010](010-lbc-orphan-cleanup-and-alb-wait.md) para o
+Until this session, the fix was only documented as a manual playbook: run
+`kubectl delete apiservice v1beta1.metrics.k8s.io`, then re-run
+`terraform destroy`. Functional, but violates the goal of `destroy` running
+from start to finish in a single execution with no human intervention (the same
+goal already pursued by [ADR 010](010-lbc-orphan-cleanup-and-alb-wait.md) for
 `apply`).
 
-## Decisões
+## Decisions
 
-### 1. `null_resource` com `provisioner "local-exec" { when = destroy }`
+### 1. `null_resource` with `provisioner "local-exec" { when = destroy }`
 
-Adicionado `null_resource.cleanup_stale_metrics_apiservice`
-(`terraform/envs/lab/argocd.tf`), cujo destroy-time provisioner roda
-`aws eks update-kubeconfig` (gerando um kubeconfig efêmero em `mktemp`,
-nunca tocando `~/.kube/config` -- importante porque o contexto padrão da
-máquina do operador aponta para um cluster Kind local, não para o EKS deste
-projeto) seguido de `kubectl delete apiservice v1beta1.metrics.k8s.io
+Added `null_resource.cleanup_stale_metrics_apiservice`
+(`terraform/envs/lab/argocd.tf`), whose destroy-time provisioner runs
+`aws eks update-kubeconfig` (generating an ephemeral kubeconfig in `mktemp`,
+never touching `~/.kube/config` -- important because the operator's machine's
+default context points at a local Kind cluster, not this project's EKS)
+followed by `kubectl delete apiservice v1beta1.metrics.k8s.io
 --ignore-not-found`.
 
-**Por que AWS CLI + kubectl via `local-exec`, não o provider `kubernetes`:**
-destroy-time provisioners só podem referenciar atributos do próprio recurso
-(`self`) -- não podem referenciar outros recursos/data sources diretamente,
-porque não há garantia do estado deles nesse ponto do destroy. Por isso
-`cluster_name` e `aws_region` são passados via `triggers` do próprio
-`null_resource` e lidos como `self.triggers.*` dentro do script, em vez de
-interpolar `module.eks.cluster_name`/`var.aws_region` direto no comando (o
-que o Terraform rejeitaria: "Invalid reference from destroy provisioner").
-Um `data "kubernetes_..."` também não serviria -- o provider `kubernetes` não
-expõe um jeito declarativo de deletar um recurso que ele próprio nunca criou.
+**Why AWS CLI + kubectl via `local-exec`, not the `kubernetes` provider:**
+destroy-time provisioners can only reference the resource's own
+attributes (`self`) -- they cannot reference other resources/data sources directly,
+because there's no guarantee about their state at that point in the destroy. That's why
+`cluster_name` and `aws_region` are passed via the `null_resource`'s own
+`triggers` and read as `self.triggers.*` inside the script, instead of
+interpolating `module.eks.cluster_name`/`var.aws_region` directly in the command (which
+Terraform would reject: "Invalid reference from destroy provisioner").
+A `data "kubernetes_..."` wouldn't work either -- the `kubernetes` provider doesn't
+expose a declarative way to delete a resource it never created itself.
 
-### 2. Ordenação: depois de `argocd_apps`, antes dos namespaces
+### 2. Ordering: after `argocd_apps`, before the namespaces
 
-`helm_release.argocd_apps` ganhou `null_resource.cleanup_stale_metrics_apiservice`
-no seu `depends_on`, e o próprio `null_resource` tem
+`helm_release.argocd_apps` gained `null_resource.cleanup_stale_metrics_apiservice`
+in its `depends_on`, and the `null_resource` itself has
 `depends_on = [kubernetes_namespace_v1.argocd, kubernetes_namespace_v1.platform]`.
-Como `destroy` inverte a ordem de dependência (quem depende é destruído
-primeiro), isso força a sequência: `argocd_apps` destruído primeiro (a
-Application `metrics-server` é podada, a `APIService` fica órfã) → o
-`null_resource` destruído em seguida (roda a limpeza, exatamente quando a
-`APIService` já está órfã mas antes de qualquer namespace tentar finalizar)
-→ os dois namespaces destruídos por último, agora sem a descoberta de API
-quebrada no caminho.
+Since `destroy` inverts the dependency order (whoever depends is destroyed
+first), this forces the sequence: `argocd_apps` destroyed first (the
+`metrics-server` Application is pruned, the `APIService` is left orphaned) → the
+`null_resource` destroyed next (runs the cleanup, exactly when the
+`APIService` is already orphaned but before any namespace tries to finalize)
+→ the two namespaces destroyed last, now without the broken API
+discovery in the way.
 
-**Alternativa descartada:** adicionar a limpeza como um provisioner de
-destroy diretamente nos próprios `kubernetes_namespace_v1.argocd`/`.platform`.
-Rejeitada porque um `null_resource` dedicado deixa a ordenação explícita e
-reaproveitável (um único recurso cobre os dois namespaces), em vez de
-duplicar o mesmo script em dois lugares com a mesma condição de corrida
-entre eles.
+**Discarded alternative:** adding the cleanup as a destroy provisioner directly
+on `kubernetes_namespace_v1.argocd`/`.platform` themselves.
+Rejected because a dedicated `null_resource` makes the ordering explicit and
+reusable (a single resource covers both namespaces), instead of
+duplicating the same script in two places with the same race condition
+between them.
 
-### 3. `docs/runbooks/run-the-project.md` atualizado, não removido
+### 3. `docs/runbooks/run-the-project.md` updated, not removed
 
-A seção do playbook manual foi mantida, mas reescrita para apontar que a
-limpeza agora é automática (referenciando este ADR) -- útil como diagnóstico
-de fallback caso o próprio `null_resource` falhe por algum motivo (ex.:
-`aws`/`kubectl` ausentes do `PATH`, ou uma causa raiz diferente da
-já conhecida).
+The manual playbook section was kept, but rewritten to note that the
+cleanup is now automatic (referencing this ADR) -- useful as a fallback
+diagnostic in case the `null_resource` itself fails for some reason (e.g.,
+`aws`/`kubectl` missing from `PATH`, or a root cause different from the
+already-known one).
 
-## Consequências
+## Consequences
 
-- `terraform/envs/lab/argocd.tf`: novo `resource "null_resource"
-  "cleanup_stale_metrics_apiservice"`; `helm_release.argocd_apps` ganha essa
-  dependência adicional.
-- `docs/runbooks/run-the-project.md`: seção do playbook manual atualizada
-  para refletir a automação, mantida como fallback documentado.
-- **Não cobre retroativamente um `destroy` já em andamento/travado no exato
-  momento em que este fix foi escrito** -- o `null_resource` só entra em
-  ação a partir do momento em que existir no state (ou seja, depois de um
-  `apply` que o crie, ainda que como no-op). Para destravar uma execução já
-  parada nos namespaces com `helm_release.argocd_apps` já destruído (fora do
-  state), a opção mais direta é `terraform apply -target=null_resource.cleanup_stale_metrics_apiservice`
-  seguido de `terraform destroy` normal -- não o playbook manual antigo.
-  Só a partir do próximo ciclo `apply`→`destroy` completo do zero é que a
-  automação cobre o cenário de ponta a ponta sem esse passo extra.
-- Validação funcional real (a automação realmente elimina o
-  `context deadline exceeded`) ainda não executada nesta sessão -- a
-  registrar como atualização futura quando um ciclo completo confirmar.
+- `terraform/envs/lab/argocd.tf`: new `resource "null_resource"
+  "cleanup_stale_metrics_apiservice"`; `helm_release.argocd_apps` gains this
+  additional dependency.
+- `docs/runbooks/run-the-project.md`: manual playbook section updated
+  to reflect the automation, kept as a documented fallback.
+- **Does not retroactively cover a `destroy` already in progress/stuck at the exact
+  moment this fix was written** -- the `null_resource` only comes into
+  play once it exists in the state (i.e., after an
+  `apply` that creates it, even as a no-op). To unblock an execution already
+  stuck at the namespaces with `helm_release.argocd_apps` already destroyed (out of
+  state), the most direct option is `terraform apply -target=null_resource.cleanup_stale_metrics_apiservice`
+  followed by a normal `terraform destroy` -- not the old manual playbook.
+  Only from the next complete `apply`→`destroy` cycle from scratch does the
+  automation cover the scenario end to end without this extra step.
+- Real functional validation (that the automation actually eliminates the
+  `context deadline exceeded`) not yet run in this session -- to be
+  recorded as a future update once a complete cycle confirms it.
