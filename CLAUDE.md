@@ -35,6 +35,8 @@ Espectadores (k6) ──▶ CloudFront (CDN, cache na borda) ──▶ S3 (segme
 - **Fluxo dinâmico:** API e páginas passam pelo ALB até o EKS.
 - **DNS e TLS:** o autor possui um **domínio próprio ativo**. Zona hospedada no Route 53 (ou delegação de subdomínio), com `external-dns` publicando registros e `cert-manager` emitindo certificados Let's Encrypt. URLs alvo: `grafana.<domínio>`, `argocd.<domínio>`, `app.<domínio>`. A zona DNS pode ser o único recurso persistente entre sessões (custo baixo e fixo) — decisão a registrar em ADR na fase 4.
 
+Este bloco é o resumo rápido. Diagramas detalhados (infra/rede, GitOps, fluxo de vídeo, autoscaling/observabilidade) e o porquê de cada decisão estão em [`docs/architecture.md`](docs/architecture.md).
+
 ## Estrutura do repositório
 
 ```
