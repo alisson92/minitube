@@ -1,0 +1,15 @@
+title = "minitube gitleaks config"
+
+[extend]
+useDefault = true
+
+# `kubectl wait --for=condition=Available ...` (used throughout
+# terraform/*/scripts/*.sh and load/lib/) has enough character entropy in
+# "condition=Available" to false-positive against the default ruleset's
+# generic-api-key rule. Confirmed false positive by hand across every
+# occurrence -- this is a kubectl condition name, never a secret.
+[allowlist]
+description = "Known false positives, confirmed by hand"
+regexes = [
+  '''condition=\w+''',
+]

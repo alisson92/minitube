@@ -17,6 +17,7 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
+# shellcheck source=load/lib/find-or-create-video.sh
 source ./lib/find-or-create-video.sh
 
 TF_DIR="../terraform/envs/lab"

@@ -5,9 +5,9 @@
 deploymentMode: SingleBinary
 
 loki:
-  auth_enabled: false # single-tenant lab, no need for per-tenant isolation
+  auth_enabled: false  # single-tenant lab, no need for per-tenant isolation
   commonConfig:
-    replication_factor: 1 # matches singleBinary.replicas: 1 below
+    replication_factor: 1  # matches singleBinary.replicas: 1 below
   storage:
     type: filesystem
   # Chart-documented shortcut for exactly this use case (single-binary,

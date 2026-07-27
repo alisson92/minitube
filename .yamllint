@@ -1,0 +1,24 @@
+extends: default
+
+rules:
+  # This repo's manifests/values files never use the `---` document marker --
+  # a stylistic choice, not an error.
+  document-start: disable
+  # Default (80) is too tight for some annotation/description values and the
+  # embedded dashboard JSON in gitops/platform/kube-prometheus-stack/
+  # dashboard-game-day.yaml (longest real line: 197). 200 still catches a
+  # genuinely runaway line without flagging content that's long on purpose.
+  line-length:
+    max: 200
+  # A trailing comment describing an indented block (e.g. "no storageSpec
+  # here") often sits right before a blank line and an unrelated top-level
+  # key -- this rule compares against the *next* line's indentation, which
+  # false-positives on exactly that common pattern in this repo's values.yaml
+  # files.
+  comments-indentation: disable
+  # GitHub Actions workflows legitimately use the bare key `on:` --
+  # yamllint's default truthy check flags it as a boolean-like key.
+  # check-keys: false keeps checking truthy *values* (a real "yes"/"no"
+  # typo is still caught), just stops flagging this one standard key.
+  truthy:
+    check-keys: false

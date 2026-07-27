@@ -1,10 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
-from prometheus_fastapi_instrumentator import Instrumentator
-
 import jobs
 import s3_client
+from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="minitube-api")
 
