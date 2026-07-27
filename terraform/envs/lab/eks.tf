@@ -14,4 +14,5 @@ module "eks" {
   node_max_size       = var.eks_node_max_size
 
   operator_role_arn = var.operator_role_arn
+  aws_region        = var.aws_region
 }

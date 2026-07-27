@@ -99,11 +99,48 @@ resource "aws_eks_access_policy_association" "operator_admin" {
 }
 
 # EKS access entries return success in ~1s, but the control plane's
-# authorizer takes a few extra seconds to actually accept the new principal
-# -- no describe/wait call exists to confirm propagation. Callers creating
-# Kubernetes/Helm resources as the operator depend_on this whole module to
-# inherit this wait. See docs/adr/013-terraform-vpc-eks-modules.md.
-resource "time_sleep" "operator_access_propagation" {
-  depends_on      = [aws_eks_access_entry.operator, aws_eks_access_policy_association.operator_admin]
-  create_duration = "30s"
+# authorizer takes a variable extra amount of time to actually accept the
+# new principal -- no describe/wait call exists to confirm propagation.
+# A blind time_sleep here (this resource's previous form, 30s fixed) is the
+# same class of bug as the ALB wait in cloudfront.tf: an arbitrary fixed
+# budget for an AWS-side eventual-consistency delay that isn't actually
+# constant, occasionally failing kubernetes_namespace_v1.argocd/.platform in
+# the caller with 401 Unauthorized even after the sleep completed. Polling
+# with a real kubectl call instead verifies the access entry is actually
+# usable before returning, rather than guessing how long that takes.
+# Callers creating Kubernetes/Helm resources as the operator depend_on this
+# whole module to inherit this wait. See docs/adr/013-terraform-vpc-eks-modules.md
+# and docs/adr/016-eks-operator-access-propagation-poll.md.
+resource "null_resource" "wait_for_operator_access" {
+  depends_on = [aws_eks_access_entry.operator, aws_eks_access_policy_association.operator_admin]
+
+  triggers = {
+    cluster_name = aws_eks_cluster.this.name
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      deadline_seconds=120
+      interval_seconds=5
+      elapsed=0
+      kubeconfig_file=$(mktemp)
+      trap 'rm -f "$kubeconfig_file"' EXIT
+      aws eks update-kubeconfig \
+        --name "${aws_eks_cluster.this.name}" \
+        --region "${var.aws_region}" \
+        --kubeconfig "$kubeconfig_file" >/dev/null
+      while [ "$elapsed" -lt "$deadline_seconds" ]; do
+        if kubectl --kubeconfig "$kubeconfig_file" get namespace kube-system >/dev/null 2>&1; then
+          exit 0
+        fi
+        sleep "$interval_seconds"
+        elapsed=$((elapsed + interval_seconds))
+        echo "still waiting for the EKS API server to recognize the operator's access entry ($${elapsed}s/$${deadline_seconds}s elapsed)..." >&2
+      done
+      echo "timed out after $${deadline_seconds}s waiting for the operator's access entry to propagate" >&2
+      exit 1
+    EOT
+  }
 }

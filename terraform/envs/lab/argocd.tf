@@ -53,8 +53,8 @@ resource "kubernetes_namespace_v1" "argocd" {
   # No implicit ordering with module.eks -- without this, a `destroy` once
   # tore down the operator's EKS access entry before this namespace (and
   # everything depending on it), revoking kubectl mid-destroy. Forces both
-  # directions: access ready (module.eks's own time_sleep) before k8s
-  # resources are created, torn down only after.
+  # directions: access ready (module.eks's own null_resource.wait_for_operator_access)
+  # before k8s resources are created, torn down only after.
   depends_on = [module.eks]
 }
 
