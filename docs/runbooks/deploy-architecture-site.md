@@ -1,6 +1,6 @@
 # Runbook — Deploy da página de arquitetura
 
-> Atualiza o conteúdo de `https://system-design.minitube.projetodevops.com.br`. Não confundir com o runbook principal (`run-the-project.md`) — este recurso vive em `terraform/bootstrap/`, persistente, fora do ciclo `apply`/`destroy` diário de `envs/lab`. Ver [ADR 017](adr/017-persistent-architecture-showcase-site.md).
+> Atualiza o conteúdo de `https://system-design.minitube.projetodevops.com.br`. Não confundir com o runbook principal (`run-the-project.md`) — este recurso vive em `terraform/bootstrap/`, persistente, fora do ciclo `apply`/`destroy` diário de `envs/lab`. Ver [ADR 017](../adr/017-persistent-architecture-showcase-site.md).
 
 ## Quando rodar
 

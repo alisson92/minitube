@@ -119,5 +119,4 @@ Sequência completa e detalhada (incluindo o bootstrap de conta, feito uma vez s
   1. Achar o teto exato de capacidade além do já confirmado `PEAK_RATE=800`/`maxReplicas: 6` (escalar mais, ou subir `maxReplicas`).
   2. KEDA como alternativa ao HPA por CPU.
   3. Habilitar "Additional metrics" no CloudFront, se o hit ratio real no dashboard for importante.
-  4. Tornar o repositório público para portfólio/LinkedIn (decisão de fundo já registrada no [ADR 007](docs/adr/007-argocd-gitops-bootstrap.md)) — pendente de concluir a rodada de organização em andamento. O link "View the source" do site de arquitetura (item 5) só funciona para visitantes depois disso.
-  5. Aplicar `terraform/bootstrap/architecture-site.tf` (ADR 017) e rodar o primeiro deploy (`docs/runbooks/deploy-architecture-site.md`) — código pronto e revisado nesta sessão, ainda não aplicado na conta real.
+  4. Tornar o repositório público para portfólio/LinkedIn (decisão de fundo já registrada no [ADR 007](docs/adr/007-argocd-gitops-bootstrap.md)) — pendente de concluir a rodada de organização em andamento. O link "View the source" do site de arquitetura só funciona para visitantes depois disso.
