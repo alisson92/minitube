@@ -58,6 +58,44 @@ resource "kubernetes_namespace_v1" "argocd" {
   depends_on = [module.eks]
 }
 
+# Created explicitly here (not left to the platform Applications' own
+# `syncOptions: CreateNamespace=true` below) so kubernetes_secret_v1.grafana_admin
+# has somewhere to live at `apply` time -- ArgoCD only creates the namespace
+# asynchronously, well after Terraform returns. CreateNamespace=true stays on
+# the Applications too; it's a no-op once the namespace already exists.
+resource "kubernetes_namespace_v1" "platform" {
+  metadata {
+    name = local.platform_namespace
+    labels = {
+      "app.kubernetes.io/part-of"    = "minitube"
+      "app.kubernetes.io/managed-by" = "terraform"
+    }
+  }
+
+  depends_on = [module.eks]
+}
+
+# Delivered to Grafana via `grafana.admin.existingSecret` (see the
+# kube-prometheus-stack Application below), never as a plaintext
+# `grafana.adminPassword` Helm parameter -- the ArgoCD UI masks Secret data
+# by default, but does not mask helm.parameters on an Application's own
+# spec, which is readable in cleartext by anyone with read RBAC on that
+# Application (`kubectl get application ... -o yaml`, or the ArgoCD UI's own
+# "Parameters" panel). See docs/adr/011-observability-stack.md, decision 12.
+resource "kubernetes_secret_v1" "grafana_admin" {
+  metadata {
+    name      = "grafana-admin-credentials"
+    namespace = kubernetes_namespace_v1.platform.metadata[0].name
+  }
+
+  type = "Opaque"
+
+  data = {
+    admin-user     = "admin"
+    admin-password = random_password.grafana_admin.result
+  }
+}
+
 # Read from SSM (terraform/bootstrap/ssm.tf), not a TF_VAR, so the key
 # persists across sessions instead of being re-exported each time. See
 # docs/adr/008-cloudfront-dns-tls.md.
@@ -506,8 +544,21 @@ resource "helm_release" "argocd_apps" {
                   value = aws_iam_role.grafana.arn
                 },
                 {
-                  name  = "grafana.adminPassword"
-                  value = random_password.grafana_admin.result
+                  # Points the chart at kubernetes_secret_v1.grafana_admin
+                  # instead of setting grafana.adminPassword directly --
+                  # only a Secret *name* rides through this Application's
+                  # spec, never the credential itself. See the comment on
+                  # that resource above.
+                  name  = "grafana.admin.existingSecret"
+                  value = kubernetes_secret_v1.grafana_admin.metadata[0].name
+                },
+                {
+                  name  = "grafana.admin.userKey"
+                  value = "admin-user"
+                },
+                {
+                  name  = "grafana.admin.passwordKey"
+                  value = "admin-password"
                 },
               ]
             }
