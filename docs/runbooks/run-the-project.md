@@ -1,42 +1,42 @@
-# Runbook — do zero ao ambiente rodando (e de volta a zero)
+# Runbook — from zero to a running environment (and back to zero)
 
-> Ponto de entrada único: reúne, em ordem, a sequência completa de passos para rodar o MiniTube — desde uma conta AWS zerada até `app.<domínio>` servindo vídeo, e de volta a zero ao final. Não substitui os runbooks específicos (cada um continua sendo a fonte de verdade do seu próprio passo) — só os organiza numa ordem executável, com a fricção de cada etapa (o que é manual, o que exige uma sessão diferente, o que só roda uma vez) explícita.
+> Single entry point: gathers, in order, the complete sequence of steps to run MiniTube — from a blank AWS account to `app.<domain>` serving video, and back to zero at the end. It doesn't replace the specific runbooks (each one remains the source of truth for its own step) — it just organizes them into an executable order, with the friction of each stage (what's manual, what requires a different session, what only runs once) made explicit.
 
-## Qual parte você precisa
+## Which part do you need
 
-- **Retomando uma sessão de trabalho na conta AWS já usada neste projeto?** Vá direto para a "Parte 2 — ciclo de sessão", mais abaixo — a Parte 1 já foi feita e persiste entre sessões.
-- **Bootstrapando uma conta AWS genuinamente nova** (replicando o projeto do zero, em outra conta)? Comece pela Parte 1.
+- **Resuming a work session on an AWS account already used for this project?** Go straight to "Part 2 — session cycle" below — Part 1 has already been done and persists across sessions.
+- **Bootstrapping a genuinely new AWS account** (replicating the project from scratch, on another account)? Start with Part 1.
 
-## Visão geral
+## Overview
 
-| Passo | O quê | Quem roda | Frequência |
+| Step | What | Who runs it | Frequency |
 | ----- | ----- | --------- | ---------- |
-| 1.1 | Conta, MFA, Identity Center, usuário operador | Manual, console AWS | Uma vez por conta |
-| 1.2 | Aplicar `terraform/bootstrap-iam/` | Root/CloudShell | Uma vez por conta¹ |
-| 1.3 | Aplicar `terraform/bootstrap/` | Root/CloudShell (1ª vez) | Uma vez por conta¹ |
-| 1.4 | Delegar o subdomínio no registrador | Manual, fora da AWS | Uma vez por domínio |
-| 1.5 | Gerar a deploy key SSH do ArgoCD | `cloudlab-operator`, local | Uma vez por conta¹ |
-| 1.6 | Configurar o profile SSO local | `cloudlab-operator`, local | Uma vez por conta/laptop |
-| 2.1 | Login SSO | `cloudlab-operator`, local | Toda vez que a sessão expirar |
-| 2.2 | Aplicar `terraform/envs/lab/` | `cloudlab-operator`, local | **Toda sessão** |
-| 2.3 | Build + push das imagens | `cloudlab-operator`, local | Só se `app/` mudou |
-| 2.4 | Validar cada subsistema | `cloudlab-operator`, local | **Toda sessão** |
-| 2.5 | Usar o ambiente | `cloudlab-operator`, local | Conforme necessário |
-| 2.6 | Destruir `terraform/envs/lab/` | `cloudlab-operator`, local | **Toda sessão**, ao final |
+| 1.1 | Account, MFA, Identity Center, operator user | Manual, AWS console | Once per account |
+| 1.2 | Apply `terraform/bootstrap-iam/` | Root/CloudShell | Once per account¹ |
+| 1.3 | Apply `terraform/bootstrap/` | Root/CloudShell (1st time) | Once per account¹ |
+| 1.4 | Delegate the subdomain at the registrar | Manual, outside AWS | Once per domain |
+| 1.5 | Generate ArgoCD's SSH deploy key | `cloudlab-operator`, local | Once per account¹ |
+| 1.6 | Configure the local SSO profile | `cloudlab-operator`, local | Once per account/laptop |
+| 2.1 | SSO login | `cloudlab-operator`, local | Every time the session expires |
+| 2.2 | Apply `terraform/envs/lab/` | `cloudlab-operator`, local | **Every session** |
+| 2.3 | Build + push the images | `cloudlab-operator`, local | Only if `app/` changed |
+| 2.4 | Validate each subsystem | `cloudlab-operator`, local | **Every session** |
+| 2.5 | Use the environment | `cloudlab-operator`, local | As needed |
+| 2.6 | Destroy `terraform/envs/lab/` | `cloudlab-operator`, local | **Every session**, at the end |
 
-¹ Já aplicado e persistente para a conta usada neste projeto (`479213212405`) — reaplicar só é necessário se `bootstrap-iam/`/`bootstrap/` ganharem código novo (os passos 1.1/1.4 nunca se repetem; só o `terraform apply`).
+¹ Already applied and persistent for the account used in this project (`479213212405`) — reapplying is only necessary if `bootstrap-iam/`/`bootstrap/` gain new code (steps 1.1/1.4 never repeat; only the `terraform apply` does).
 
 ---
 
-## Parte 1 — bootstrap de uma conta AWS nova (uma vez por conta)
+## Part 1 — bootstrapping a new AWS account (once per account)
 
-### 1.1 — Conta, MFA, Identity Center, usuário operador
+### 1.1 — Account, MFA, Identity Center, operator user
 
-Passo a passo completo (todos manuais, via console, sem Terraform) em [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](bootstrap/aws-account-bootstrap.md), passos 1 a 5: criação da conta e MFA no root, abertura do CloudShell com cache de provider compartilhado, clone do repositório, ativação do IAM Identity Center e criação do usuário operador.
+Complete step-by-step (all manual, via console, no Terraform) in [`docs/runbooks/bootstrap/aws-account-bootstrap.md`](bootstrap/aws-account-bootstrap.md), steps 1 through 5: account creation and MFA on root, opening CloudShell with a shared provider cache, cloning the repository, enabling IAM Identity Center, and creating the operator user.
 
-### 1.2 — Aplicar `bootstrap-iam` (CloudShell/root)
+### 1.2 — Apply `bootstrap-iam` (CloudShell/root)
 
-⚠️ **Só roda com sessão root/CloudShell.** Não é só o permission set do operador — hoje esse módulo já acumulou também as roles do EKS, a role de smoke test, o budget alert da conta e a policy inline com sete permissões diferentes concedidas ao operador ao longo do projeto. Detalhe completo de cada recurso no passo 6 de [`aws-account-bootstrap.md`](bootstrap/aws-account-bootstrap.md).
+⚠️ **Only runs with a root/CloudShell session.** It's not just the operator's permission set — this module has by now also accumulated the EKS roles, the smoke-test role, the account budget alert, and the inline policy with seven different permissions granted to the operator throughout the project. Full detail on each resource in step 6 of [`aws-account-bootstrap.md`](bootstrap/aws-account-bootstrap.md).
 
 ```bash
 cd terraform/bootstrap-iam
@@ -45,9 +45,9 @@ terraform plan
 terraform apply
 ```
 
-### 1.3 — Aplicar `bootstrap` (backend remoto, ECR, DNS)
+### 1.3 — Apply `bootstrap` (remote backend, ECR, DNS)
 
-Ainda na mesma sessão root/CloudShell (passo 7 de [`aws-account-bootstrap.md`](bootstrap/aws-account-bootstrap.md)) — o primeiro apply usa backend local, já que o bucket de state ainda não existe. Depois de criado, a migração para o backend S3 é feita à parte (ver [`bootstrap-remote-backend.md`](bootstrap/bootstrap-remote-backend.md) e [ADR 001](../adr/001-terraform-state-backend.md)).
+Still in the same root/CloudShell session (step 7 of [`aws-account-bootstrap.md`](bootstrap/aws-account-bootstrap.md)) — the first apply uses a local backend, since the state bucket doesn't exist yet. Once created, migration to the S3 backend is done separately (see [`bootstrap-remote-backend.md`](bootstrap/bootstrap-remote-backend.md) and [ADR 001](../adr/001-terraform-state-backend.md)).
 
 ```bash
 cd ../bootstrap
@@ -56,38 +56,38 @@ terraform plan
 terraform apply
 ```
 
-Cria, entre outros: o bucket de state, os dois repositórios ECR, a hosted zone Route 53 e o certificado ACM wildcard.
+Creates, among other things: the state bucket, the two ECR repositories, the Route 53 hosted zone, and the wildcard ACM certificate.
 
-### 1.4 — Delegar o subdomínio no registrador (manual, fora da AWS)
+### 1.4 — Delegate the subdomain at the registrar (manual, outside AWS)
 
 ```bash
 terraform output route53_zone_name_servers
 ```
 
-Cadastrar os 4 nameservers retornados como delegação NS no registrador do domínio raiz. **Não é instantâneo** — propagação de DNS pode levar de minutos a algumas horas; confirmar com `dig NS <domínio>` antes de seguir para a Parte 2.
+Register the 4 returned nameservers as an NS delegation at the root domain's registrar. **Not instant** — DNS propagation can take from minutes to a few hours; confirm with `dig NS <domain>` before moving on to Part 2.
 
-### 1.5 — Gerar a deploy key SSH do ArgoCD (uma vez)
+### 1.5 — Generate ArgoCD's SSH deploy key (once)
 
-O ArgoCD precisa de credencial própria para clonar este repositório privado. Passos exatos (gerar o par de chaves, cadastrar a pública como deploy key read-only no GitHub, gravar a privada via um único `terraform apply` em `bootstrap/`) na seção "Pré-requisitos" de [`docs/runbooks/validate/validate-argocd-gitops.md`](validate/validate-argocd-gitops.md). Depois desse apply, a chave persiste no SSM Parameter Store e nunca mais precisa ser regenerada ou reexportada.
+ArgoCD needs its own credential to clone this private repository. Exact steps (generate the key pair, register the public one as a read-only deploy key on GitHub, write the private one via a single `terraform apply` in `bootstrap/`) are in the "Prerequisites" section of [`docs/runbooks/validate/validate-argocd-gitops.md`](validate/validate-argocd-gitops.md). After that apply, the key persists in SSM Parameter Store and never needs to be regenerated or re-exported.
 
-### 1.6 — Configurar o profile SSO local
+### 1.6 — Configure the local SSO profile
 
-Passo 8 de [`aws-account-bootstrap.md`](bootstrap/aws-account-bootstrap.md) — `~/.aws/config` com um `sso-session` dedicado, depois `aws sso login --profile cloudlab`.
+Step 8 of [`aws-account-bootstrap.md`](bootstrap/aws-account-bootstrap.md) — `~/.aws/config` with a dedicated `sso-session`, then `aws sso login --profile cloudlab`.
 
-**Ao final da Parte 1:** `terraform/bootstrap-iam/` e `terraform/bootstrap/` aplicados e persistentes; `terraform/envs/lab/` ainda não existe. Tudo daqui para frente é Parte 2, e se repete a cada sessão.
+**At the end of Part 1:** `terraform/bootstrap-iam/` and `terraform/bootstrap/` applied and persistent; `terraform/envs/lab/` doesn't exist yet. Everything from here on is Part 2, and repeats every session.
 
 ---
 
-## Parte 2 — ciclo de sessão (toda vez que for usar o ambiente)
+## Part 2 — session cycle (every time you use the environment)
 
-### 2.1 — Login SSO (se a sessão anterior expirou)
+### 2.1 — SSO login (if the previous session expired)
 
 ```bash
 aws sso login --profile cloudlab
 aws sts get-caller-identity --profile cloudlab
 ```
 
-### 2.2 — Aplicar `terraform/envs/lab/`
+### 2.2 — Apply `terraform/envs/lab/`
 
 ```bash
 cd terraform/envs/lab
@@ -96,15 +96,15 @@ AWS_PROFILE=cloudlab terraform plan
 AWS_PROFILE=cloudlab terraform apply
 ```
 
-Cria do zero: VPC, EKS (cluster + node group spot), bucket S3 de vídeo, IRSA roles, ArgoCD, CloudFront e todo o stack de observabilidade — reconciliados automaticamente pelo ArgoCD a partir do Git assim que o cluster sobe, sem nenhum `kubectl apply` manual.
+Creates from scratch: VPC, EKS (cluster + spot node group), video S3 bucket, IRSA roles, ArgoCD, CloudFront, and the entire observability stack — automatically reconciled by ArgoCD from Git as soon as the cluster comes up, with no manual `kubectl apply`.
 
-⚠️ **Se o apply falhar em `helm_release.argocd` com erro de conexão logo após criar um cluster novo** (`connection refused`/`context deadline exceeded`): sintoma conhecido de o control plane ainda não estar pronto para os providers `kubernetes`/`helm` no mesmo apply em que nasceu — o cenário mais comum aqui, não a exceção, já que o cluster é recriado toda sessão. Fallback documentado na seção "Aplicar o ArgoCD e rodar o teste" de [`validate-argocd-gitops.md`](validate/validate-argocd-gitops.md): `terraform apply -target=module.eks` primeiro, depois o apply completo de novo.
+⚠️ **If the apply fails on `helm_release.argocd` with a connection error right after creating a new cluster** (`connection refused`/`context deadline exceeded`): a known symptom of the control plane not yet being ready for the `kubernetes`/`helm` providers in the same apply where it was created — the most common scenario here, not the exception, since the cluster is recreated every session. Documented fallback in the "Apply ArgoCD and run the test" section of [`validate-argocd-gitops.md`](validate/validate-argocd-gitops.md): `terraform apply -target=module.eks` first, then the full apply again.
 
-### 2.3 — Build + push das imagens (só se o código de `app/` mudou)
+### 2.3 — Build + push the images (only if the `app/` code changed)
 
-Se `app/api/` e `app/transcoder/` não mudaram desde a última sessão, **pule este passo** — as imagens já estão publicadas no ECR (persistente) e `gitops/app/deployment.yaml` já referencia a tag certa.
+If `app/api/` and `app/transcoder/` haven't changed since the last session, **skip this step** — the images are already published in ECR (persistent) and `gitops/app/deployment.yaml` already references the right tag.
 
-Se mudou:
+If it did change:
 
 ```bash
 account_id=$(aws sts get-caller-identity --profile cloudlab --query Account --output text)
@@ -113,36 +113,36 @@ aws ecr get-login-password --region us-east-1 --profile cloudlab | \
 
 docker build -t "${account_id}.dkr.ecr.us-east-1.amazonaws.com/minitube-api:vX.Y.Z" app/api
 docker push "${account_id}.dkr.ecr.us-east-1.amazonaws.com/minitube-api:vX.Y.Z"
-# repetir para minitube-transcoder se app/transcoder/ também mudou
+# repeat for minitube-transcoder if app/transcoder/ also changed
 ```
 
-Depois, atualizar a tag em `gitops/app/deployment.yaml`, commitar e deixar o ArgoCD sincronizar — nunca `kubectl set image` manual (ver `docs/engineering-standards.md` §5).
+Then, update the tag in `gitops/app/deployment.yaml`, commit, and let ArgoCD sync — never a manual `kubectl set image` (see `docs/engineering-standards.md` §5).
 
-### 2.4 — Validar cada subsistema
+### 2.4 — Validate each subsystem
 
-Tudo de uma vez, na ordem certa, sem parar no primeiro que falhar (resumo `PASS`/`FAIL` de cada um ao final):
+All at once, in the right order, without stopping at the first failure (a `PASS`/`FAIL` summary for each at the end):
 
 ```bash
 make validate-all
 ```
 
-`make help` lista cada checagem individual (`validate-network`, `validate-eks`, etc.), caso só precise rodar uma. O que cada uma prova e como ler o resultado, em detalhe:
+`make help` lists each individual check (`validate-network`, `validate-eks`, etc.), in case you only need to run one. What each one proves and how to read the result, in detail:
 
-1. [`validate-vpc-network.md`](validate/validate-vpc-network.md) — egress real via NAT.
-2. [`validate-eks-cluster.md`](validate/validate-eks-cluster.md) — control plane, nodes, pod real agendado.
-3. [`validate-transcoding.md`](validate/validate-transcoding.md) — upload real → Job → FFmpeg → segmentos no S3.
-4. [`validate-argocd-gitops.md`](validate/validate-argocd-gitops.md) — `selfHeal` reverte um drift manual sem `kubectl apply`.
-5. [`validate-cloudfront-dns-tls.md`](validate/validate-cloudfront-dns-tls.md) — HLS real via CDN, HTTPS válido.
+1. [`validate-vpc-network.md`](validate/validate-vpc-network.md) — real egress via NAT.
+2. [`validate-eks-cluster.md`](validate/validate-eks-cluster.md) — control plane, nodes, a real pod scheduled.
+3. [`validate-transcoding.md`](validate/validate-transcoding.md) — real upload → Job → FFmpeg → segments in S3.
+4. [`validate-argocd-gitops.md`](validate/validate-argocd-gitops.md) — `selfHeal` reverts a manual drift without `kubectl apply`.
+5. [`validate-cloudfront-dns-tls.md`](validate/validate-cloudfront-dns-tls.md) — real HLS via CDN, valid HTTPS.
 6. [`validate-observability.md`](validate/validate-observability.md) — PVCs, Prometheus, Grafana, Loki.
 
-### 2.5 — Usar o ambiente
+### 2.5 — Use the environment
 
-- **ArgoCD:** [`access-argocd-ui.md`](access-argocd-ui.md) — URL real + senha via `terraform output`.
-- **Grafana:** `terraform output -raw grafana_admin_password`, em `grafana.<domínio>`.
-- **Testes de carga (k6):** [`../../load/README.md`](../../load/README.md) para a visão geral dos 4 cenários, runbooks individuais em `docs/runbooks/load/`.
-- **Experimentos de caos:** os 3 runbooks em `docs/runbooks/chaos/`, e [`incident-response.md`](incident-response.md) para o runbook de resposta a incidente que eles treinam.
+- **ArgoCD:** [`access-argocd-ui.md`](access-argocd-ui.md) — real URL + password via `terraform output`.
+- **Grafana:** `terraform output -raw grafana_admin_password`, at `grafana.<domain>`.
+- **Load tests (k6):** [`../../load/README.md`](../../load/README.md) for an overview of the 4 scenarios, individual runbooks in `docs/runbooks/load/`.
+- **Chaos experiments:** the 3 runbooks in `docs/runbooks/chaos/`, and [`incident-response.md`](incident-response.md) for the incident response runbook they train for.
 
-### 2.6 — Destruir o ambiente (sempre, ao final da sessão)
+### 2.6 — Destroy the environment (always, at the end of the session)
 
 ```bash
 cd terraform/envs/lab
@@ -150,7 +150,7 @@ AWS_PROFILE=cloudlab terraform plan -destroy
 AWS_PROFILE=cloudlab terraform destroy
 ```
 
-Depois, confirmar via API AWS direta — nunca confiar só em `terraform state list` — que não sobrou nada cobrável:
+Then, confirm via the direct AWS API — never trust `terraform state list` alone — that nothing billable is left:
 
 ```bash
 aws eks list-clusters --profile cloudlab --region us-east-1
@@ -159,24 +159,24 @@ aws elbv2 describe-load-balancers --profile cloudlab --region us-east-1
 aws cloudfront list-distributions --profile cloudlab --query 'DistributionList.Items[?Enabled==`true`]'
 ```
 
-Todas devem retornar vazio. Se o `destroy` travar com `DependencyViolation` no Internet Gateway/subnets — o sintoma clássico do órfão do `aws-load-balancer-controller` (ALB/security groups sobrevivendo ao node group) — a causa raiz já foi corrigida estruturalmente pelo [ADR 010](../adr/010-lbc-orphan-cleanup-and-alb-wait.md); se acontecer mesmo assim, o playbook de recuperação manual está na decisão 6 do [ADR 009](../adr/009-eks-access-entries-and-api-edge-routing.md).
+All should return empty. If `destroy` gets stuck with `DependencyViolation` on the Internet Gateway/subnets — the classic symptom of an orphaned `aws-load-balancer-controller` resource (ALB/security groups outliving the node group) — the root cause has already been structurally fixed by [ADR 010](../adr/010-lbc-orphan-cleanup-and-alb-wait.md); if it happens anyway, the manual recovery playbook is in decision 6 of [ADR 009](../adr/009-eks-access-entries-and-api-edge-routing.md).
 
-⚠️ **Se o `destroy` travar em `kubernetes_namespace_v1.argocd`/`kubernetes_namespace_v1.platform` (`Still destroying...` por vários minutos, terminando em `Error: context deadline exceeded`):** desde o [ADR 015](../adr/015-destroy-stale-metrics-apiservice-automation.md), `null_resource.cleanup_stale_metrics_apiservice` (`terraform/envs/lab/argocd.tf`) automatiza a limpeza abaixo em todo `destroy` que parta de um `apply` já com esse recurso no state — não deveria mais precisar de intervenção manual num ciclo `apply`→`destroy` completo.
+⚠️ **If `destroy` gets stuck on `kubernetes_namespace_v1.argocd`/`kubernetes_namespace_v1.platform` (`Still destroying...` for several minutes, ending in `Error: context deadline exceeded`):** since [ADR 015](../adr/015-destroy-stale-metrics-apiservice-automation.md), `null_resource.cleanup_stale_metrics_apiservice` (`terraform/envs/lab/argocd.tf`) automates the cleanup below on every `destroy` that starts from an `apply` that already has this resource in state — manual intervention shouldn't be needed anymore in a full `apply`→`destroy` cycle.
 
-Se mesmo assim travar (ex.: `aws`/`kubectl` ausentes do `PATH` de quem roda o `destroy`, ou o `null_resource` ainda não existia no state porque o `apply` anterior foi feito antes do ADR 015), o diagnóstico e a correção manual de fallback são:
+If it still gets stuck (e.g. `aws`/`kubectl` missing from the `PATH` of whoever runs `destroy`, or the `null_resource` didn't yet exist in the state because the previous `apply` was done before ADR 015), the diagnosis and manual fallback fix are:
 
 ```bash
 kubectl get namespace minitube-platform argocd -o yaml | grep -A5 "conditions:"
 ```
 
-Se aparecer `reason: DiscoveryFailed` mencionando `metrics.k8s.io/v1beta1: stale GroupVersion discovery`: o `APIService` (cluster-scoped) do `metrics-server` ficou registrado apontando pra um backend que o ArgoCD já removeu ao podar a `Application` `metrics-server` — enquanto essa `APIService` quebrada existir, a descoberta de API do cluster inteiro falha, e o controller de finalização de namespace (que precisa dessa descoberta completa) trava para **qualquer** namespace, não só o do metrics-server. Sem risco de recurso órfão (é só metadado de registro da API, nenhum dado real envolvido):
+If `reason: DiscoveryFailed` shows up mentioning `metrics.k8s.io/v1beta1: stale GroupVersion discovery`: the `metrics-server`'s (cluster-scoped) `APIService` was left registered pointing at a backend that ArgoCD already removed when pruning the `metrics-server` `Application` — while this broken `APIService` exists, API discovery for the entire cluster fails, and the namespace finalization controller (which needs that complete discovery) gets stuck for **any** namespace, not just the metrics-server's. No risk of an orphaned resource (it's just API registration metadata, no real data involved):
 
 ```bash
 kubectl delete apiservice v1beta1.metrics.k8s.io
 ```
 
-Os namespaces devem terminar em segundos depois disso — reexecute `terraform destroy` para retomar dali. Se o `null_resource` do ADR 015 já existia no state mas mesmo assim não rodou a limpeza a tempo, isso é sinal de uma causa raiz nova, não coberta por este runbook — investigar antes de assumir que é o mesmo problema.
+The namespaces should finish terminating within seconds after this — rerun `terraform destroy` to resume from there. If the ADR 015 `null_resource` already existed in the state but still didn't run the cleanup in time, that's a sign of a new root cause, not covered by this runbook — investigate before assuming it's the same problem.
 
-Causa raiz original: desde que `kubernetes_namespace_v1.argocd`/`.platform` passaram a ser gerenciados diretamente pelo Terraform (necessário para `kubernetes_secret_v1.grafana_admin` — ver decisão 12 do [ADR 011](../adr/011-observability-stack.md)), o `destroy` passou a esperar a finalização graciosa desses namespaces via API do Kubernetes antes de destruir o EKS — antes, a destruição do cluster levava tudo junto sem esperar, então essa corrida nunca era visível.
+Original root cause: since `kubernetes_namespace_v1.argocd`/`.platform` started being managed directly by Terraform (needed for `kubernetes_secret_v1.grafana_admin` — see decision 12 of [ADR 011](../adr/011-observability-stack.md)), `destroy` started waiting for the graceful finalization of these namespaces via the Kubernetes API before destroying EKS — previously, destroying the cluster took everything down together without waiting, so this race was never visible.
 
-`terraform/bootstrap-iam/` e `terraform/bootstrap/` **não são tocados** — ficam de pé entre sessões por design (ver "Estado atual" no [`CLAUDE.md`](../../CLAUDE.md)).
+`terraform/bootstrap-iam/` and `terraform/bootstrap/` **are not touched** — they stay up between sessions by design (see "Current state" in [`CLAUDE.md`](../../CLAUDE.md)).

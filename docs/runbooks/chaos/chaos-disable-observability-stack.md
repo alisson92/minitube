@@ -1,61 +1,61 @@
-# Chaos: derrubar a stack de observabilidade
+# Chaos: take down the observability stack
 
-> **Resultado final confirmado: `PASS`** — ver a última seção ("pós-fix #2") para o resultado real com Prometheus/Alertmanager genuinamente fora do ar. As duas seções anteriores documentam bugs do próprio script, corrigidos ao longo do caminho, não do experimento em si.
+> **Confirmed final result: `PASS`** — see the last section ("post-fix #2") for the actual result with Prometheus/Alertmanager genuinely down. The two previous sections document bugs in the script itself, fixed along the way, not in the experiment itself.
 
-## O quê
+## What
 
-`chaos/disable-observability-stack.sh` pausa temporariamente o `selfHeal` das Applications ArgoCD `kube-prometheus-stack` e `loki` (só essas duas — `aws-load-balancer-controller`, `external-dns`, `cert-manager` e o `ebs-csi-driver` vivem no mesmo namespace `minitube-platform`, mas não são tocados), escala Prometheus/Alertmanager/Grafana/Loki a zero réplicas, e gera tráfego real contra a API e a playlist HLS (via CloudFront) para confirmar que a aplicação continua servindo normalmente sem nenhuma telemetria de pé.
+`chaos/disable-observability-stack.sh` temporarily pauses `selfHeal` on the ArgoCD Applications `kube-prometheus-stack` and `loki` (only these two — `aws-load-balancer-controller`, `external-dns`, `cert-manager` and `ebs-csi-driver` live in the same `minitube-platform` namespace, but are not touched), scales Prometheus/Alertmanager/Grafana/Loki to zero replicas, and generates real traffic against the API and the HLS playlist (via CloudFront) to confirm the application keeps serving normally with no telemetry standing at all.
 
-## Por quê
+## Why
 
-Confirma blast radius contido: uma falha na stack de observabilidade não pode ser, ela mesma, um incidente de disponibilidade da aplicação.
+Confirms contained blast radius: a failure in the observability stack cannot, by itself, be an application availability incident.
 
-## Como
+## How
 
 ```bash
 AWS_PROFILE=cloudlab ./chaos/disable-observability-stack.sh
 ```
 
-Variáveis de ambiente opcionais:
+Optional environment variables:
 - `TRAFFIC_WINDOW_SECONDS` (default 60)
-- `MAX_ERROR_RATE_PERCENT` (default 0 — a expectativa aqui é impacto zero, não "aceitável")
+- `MAX_ERROR_RATE_PERCENT` (default 0 — the expectation here is zero impact, not "acceptable")
 
-**Sobre pausar `selfHeal` via `kubectl patch`:** essa técnica já foi usada (e registrada na seção "Estado atual" do `CLAUDE.md`) durante troubleshooting manual de `terraform destroy` em sessões anteriores. Este script a formaliza como procedimento versionado e sempre revertido — nunca uma mudança permanente fora do Git. O `trap cleanup EXIT` restaura, na ordem inversa, primeiro as réplicas originais (capturadas antes de qualquer mutação) e só depois o `syncPolicy` original de cada Application, para que o ArgoCD não entre em sync no meio da restauração das réplicas.
+**On pausing `selfHeal` via `kubectl patch`:** this technique was already used (and recorded in the "Current state" section of `CLAUDE.md`) during manual troubleshooting of `terraform destroy` in previous sessions. This script formalizes it as a versioned, always-reverted procedure — never a permanent change outside Git. The `trap cleanup EXIT` restores, in reverse order, first the original replicas (captured before any mutation) and only then the original `syncPolicy` of each Application, so ArgoCD doesn't kick off a sync in the middle of restoring the replicas.
 
-**Descoberta de recursos:** o script escala tudo em `minitube-platform` **exceto** os add-ons de plataforma que não fazem parte deste experimento (`aws-load-balancer-controller`, `external-dns`, `cert-manager*`, `ebs-csi-controller`) — uma lista de exclusão, não de inclusão. A primeira versão usava inclusão via `app.kubernetes.io/instance in (kube-prometheus-stack, loki)`, que cobre os recursos templados direto pelo chart Helm (Grafana, kube-state-metrics, o operator e seu webhook, Loki) mas **não** o StatefulSet real do Prometheus/Alertmanager — esses são criados dinamicamente pelo Prometheus Operator a partir dos CRs `Prometheus`/`Alertmanager`, com um esquema de labels próprio do operator, não o label de instância do Helm. Ver "Resultado da execução" abaixo — esse gap só apareceu rodando de verdade.
+**Resource discovery:** the script scales everything in `minitube-platform` **except** the platform add-ons that aren't part of this experiment (`aws-load-balancer-controller`, `external-dns`, `cert-manager*`, `ebs-csi-controller`) — an exclusion list, not an inclusion one. The first version used inclusion via `app.kubernetes.io/instance in (kube-prometheus-stack, loki)`, which covers the resources templated directly by the Helm chart (Grafana, kube-state-metrics, the operator and its webhook, Loki) but **not** the actual Prometheus/Alertmanager StatefulSet — those are created dynamically by the Prometheus Operator from the `Prometheus`/`Alertmanager` CRs, with the operator's own labeling scheme, not the Helm instance label. See "Run result" below — this gap only showed up when actually running it.
 
-## Como ler o resultado
+## How to read the result
 
-- **PASS:** taxa de erro 0% (ou dentro do limiar configurado) durante toda a janela — a API e o HLS seguiram servindo tráfego sem nenhuma dependência real da stack de observabilidade em runtime.
-- **FAIL:** algo na aplicação depende da stack de observabilidade estar de pé — investigar se algum `initContainer`/sidecar/health check da API consulta Prometheus/Loki diretamente (não deveria). **Antes de aceitar essa conclusão, confirme que o Prometheus/Alertmanager de verdade foram escalados a zero** (`kubectl -n minitube-platform get statefulset` — ambos devem aparecer na lista impressa em "Workloads to scale to zero") — um `FAIL` com esses dois ainda de pé não prova nada sobre blast radius, só que algo mais aconteceu durante a janela.
-- Ao final, confira que a stack voltou: `kubectl -n minitube-platform get deploy,statefulset` — todos com as réplicas originais, e `kubectl -n argocd get applications kube-prometheus-stack loki` de volta a `Synced`/`Healthy` (o `selfHeal` reconcilia sozinho depois do `syncPolicy` restaurado).
+- **PASS:** error rate 0% (or within the configured threshold) throughout the whole window — the API and HLS kept serving traffic with no real runtime dependency on the observability stack.
+- **FAIL:** something in the application depends on the observability stack being up — investigate whether some `initContainer`/sidecar/health check of the API queries Prometheus/Loki directly (it shouldn't). **Before accepting this conclusion, confirm that Prometheus/Alertmanager were actually scaled to zero** (`kubectl -n minitube-platform get statefulset` — both should appear in the list printed under "Workloads to scale to zero") — a `FAIL` with these two still up proves nothing about blast radius, only that something else happened during the window.
+- At the end, check that the stack came back: `kubectl -n minitube-platform get deploy,statefulset` — all with original replica counts, and `kubectl -n argocd get applications kube-prometheus-stack loki` back to `Synced`/`Healthy` (`selfHeal` reconciles on its own once `syncPolicy` is restored).
 
-## Resultado da execução (2026-07-26) — bug real encontrado e corrigido
+## Run result (2026-07-26) — real bug found and fixed
 
-Primeira execução real: pausou o `selfHeal` das duas Applications, descobriu e escalou os 5 workloads corretos a zero (`kube-prometheus-stack-grafana`, `-kube-state-metrics`, `-operator`, `-operator-webhook`, `statefulset/loki`), confirmou os `node-exporter` (DaemonSet, fora do escopo) seguindo `Running` normalmente — e então **abortou silenciosamente** logo depois de abrir o `port-forward` para a API, pulando toda a geração de tráfego e a seção de resultado. O `trap cleanup EXIT` disparou e restaurou tudo corretamente (réplicas e `syncPolicy` de volta ao original) — a parte de limpeza funcionou; a parte de medição, não.
+First real run: paused `selfHeal` on both Applications, discovered and scaled the 5 correct workloads to zero (`kube-prometheus-stack-grafana`, `-kube-state-metrics`, `-operator`, `-operator-webhook`, `statefulset/loki`), confirmed the `node-exporter`s (DaemonSet, out of scope) still `Running` normally — and then **silently aborted** right after opening the `port-forward` to the API, skipping the entire traffic-generation and result section. The `trap cleanup EXIT` fired and correctly restored everything (replicas and `syncPolicy` back to original) — the cleanup part worked; the measurement part didn't.
 
-**Causa raiz:** o script tentava descobrir um `video_id` com `curl -sf GET /api/videos` (esperando uma lista JSON) — mas `app/api/main.py` só expõe `POST /api/videos` (upload) e `GET /api/videos/{video_id}`, nunca uma rota de listagem. O `GET` batia `405 Method Not Allowed`, `curl -sf` retornava não-zero, e sob `set -euo pipefail` o script abortava naquele ponto exato, sem nenhuma mensagem de erro visível (a falha ficou dentro de uma substituição de comando).
+**Root cause:** the script tried to discover a `video_id` with `curl -sf GET /api/videos` (expecting a JSON list) — but `app/api/main.py` only exposes `POST /api/videos` (upload) and `GET /api/videos/{video_id}`, never a listing route. The `GET` hit `405 Method Not Allowed`, `curl -sf` returned non-zero, and under `set -euo pipefail` the script aborted at that exact point, with no visible error message (the failure was inside a command substitution).
 
-**Corrigido:** o script agora reaproveita `load/lib/find-or-create-video.sh` (a mesma lib usada por `run-breakpoint-from-ec2.sh`/`run-waves-from-ec2.sh`), que acha um vídeo já transcodificado direto no S3 — sem depender de nenhuma rota de listagem que nunca existiu.
+**Fixed:** the script now reuses `load/lib/find-or-create-video.sh` (the same lib used by `run-breakpoint-from-ec2.sh`/`run-waves-from-ec2.sh`), which finds an already-transcoded video directly in S3 — without depending on any listing route that never existed.
 
-## Resultado da execução (2026-07-26, pós-fix #1) — segundo bug real: Prometheus/Alertmanager nunca foram derrubados
+## Run result (2026-07-26, post-fix #1) — second real bug: Prometheus/Alertmanager were never taken down
 
-Reexecutado após o fix do `video_id`. Desta vez o script rodou até o fim e reportou `FAIL`: 6 de 32 requisições não-200 (`18,75%`) na janela de 60s.
+Rerun after the `video_id` fix. This time the script ran to completion and reported `FAIL`: 6 out of 32 non-200 requests (`18.75%`) in the 60s window.
 
-**Antes de aceitar essa conclusão, confirmei a lista de workloads escalados nas duas execuções (a original e esta):** nunca incluiu o StatefulSet do Prometheus nem do Alertmanager — só `kube-prometheus-stack-grafana`, `-kube-state-metrics`, `-operator`, `-operator-webhook` e `statefulset/loki`. **O Prometheus (e o Alertmanager) ficaram de pé o tempo todo** — o experimento nunca testou o que se propõe a testar, então o `FAIL` de 18,75% não pode ser atribuído a "a app depende da stack de observabilidade" sem mais evidência.
+**Before accepting this conclusion, I checked the list of scaled workloads in both runs (the original and this one):** it never included the Prometheus or Alertmanager StatefulSet — only `kube-prometheus-stack-grafana`, `-kube-state-metrics`, `-operator`, `-operator-webhook` and `statefulset/loki`. **Prometheus (and Alertmanager) stayed up the whole time** — the experiment never actually tested what it claims to test, so the 18.75% `FAIL` can't be attributed to "the app depends on the observability stack" without more evidence.
 
-**Causa raiz:** a descoberta original incluía por `app.kubernetes.io/instance` (label do Helm), que só cobre recursos templados diretamente pelo chart — o Prometheus Operator cria o StatefulSet real do Prometheus/Alertmanager dinamicamente a partir dos CRs, com labels próprios do operator, nunca vistos pela query original.
+**Root cause:** the original discovery included by `app.kubernetes.io/instance` (Helm label), which only covers resources templated directly by the chart — the Prometheus Operator creates the actual Prometheus/Alertmanager StatefulSet dynamically from the CRs, with its own operator labels, never seen by the original query.
 
-**Corrigido:** a descoberta agora exclui por nome os add-ons que não fazem parte do experimento (`aws-load-balancer-controller`, `external-dns`, `cert-manager*`, `ebs-csi-controller`) e escala **tudo o mais** em `minitube-platform` — cobre Prometheus/Alertmanager independente de como o operator os rotula. O "wait" e a checagem de estado pós-scale-down também foram trocados de um seletor de pods (mesmo problema) para polling direto de `.status.replicas` de cada workload descoberto.
+**Fixed:** discovery now excludes by name the add-ons that aren't part of the experiment (`aws-load-balancer-controller`, `external-dns`, `cert-manager*`, `ebs-csi-controller`) and scales **everything else** in `minitube-platform` — covering Prometheus/Alertmanager regardless of how the operator labels them. The "wait" and post-scale-down state check were also switched from a pod selector (same problem) to direct polling of `.status.replicas` on each discovered workload.
 
-## Resultado da execução (2026-07-26, pós-fix #2) — PASS real, com um efeito colateral corrigido
+## Run result (2026-07-26, post-fix #2) — real PASS, with one side effect fixed
 
-Reexecutado com a descoberta por exclusão. Desta vez `statefulset/prometheus-kube-prometheus-stack-prometheus` e `statefulset/alertmanager-kube-prometheus-stack-alertmanager` apareceram na lista e foram escalados a zero de verdade, junto com Grafana/kube-state-metrics/operator/operator-webhook/Loki.
+Rerun with exclusion-based discovery. This time `statefulset/prometheus-kube-prometheus-stack-prometheus` and `statefulset/alertmanager-kube-prometheus-stack-alertmanager` appeared in the list and were actually scaled to zero, along with Grafana/kube-state-metrics/operator/operator-webhook/Loki.
 
-- **Total de requisições (API + playlist HLS):** 60 (janela de 60s).
-- **Não-200:** 0.
-- **Taxa de erro:** 0%.
+- **Total requests (API + HLS playlist):** 60 (60s window).
+- **Non-200:** 0.
+- **Error rate:** 0%.
 
-`PASS`: com o Prometheus e o Alertmanager realmente fora do ar (confirmado, não presumido), a API e o HLS seguiram servindo 100% do tráfego — blast radius contido, como o experimento se propõe a provar.
+`PASS`: with Prometheus and Alertmanager genuinely down (confirmed, not assumed), the API and HLS kept serving 100% of the traffic — contained blast radius, as the experiment set out to prove.
 
-**Efeito colateral encontrado e corrigido:** a lista de exclusão original não incluía `metrics-server` (Application separada da Fase 6/ADR 012, usada só pelo HPA — não faz parte da stack de observabilidade). Ele foi varrido pela descoberta por engano, e como o script nunca pausou o `selfHeal` da Application dele (só de `kube-prometheus-stack`/`loki`), o ArgoCD reverteu o `scale --replicas=0` sozinho antes dos 90s de espera (`WARN: deployment/metrics-server still reports 1 replica(s) after 90s`) — inofensivo (ele nunca devia ter sido tocado mesmo, e nunca ficou fora do ar de verdade), mas fora do escopo do experimento. Adicionado à lista de exclusão.
+**Side effect found and fixed:** the original exclusion list didn't include `metrics-server` (a separate Application from Phase 6/ADR 012, used only by the HPA — not part of the observability stack). It was swept up by discovery by mistake, and since the script never paused `selfHeal` on its Application (only on `kube-prometheus-stack`/`loki`), ArgoCD reverted the `scale --replicas=0` on its own before the 90s wait elapsed (`WARN: deployment/metrics-server still reports 1 replica(s) after 90s`) — harmless (it should never have been touched anyway, and was never actually down), but out of the experiment's scope. Added to the exclusion list.

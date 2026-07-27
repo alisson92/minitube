@@ -1,60 +1,60 @@
-# Runbook: teste de ondas k6 (Fase 6)
+# Runbook: k6 waves test (Phase 6)
 
-## O quê
+## What
 
-`load/run-waves-from-ec2.sh` roda `load/k6/waves.js` — audiência subindo e descendo em ondas ("pré-jogo" → "1º tempo" → "intervalo" → "2º tempo" → "pico do gol" → "apito final"), ao longo de ~23 minutos. Diferente de `load/k6/baseline.js` (crescimento monotônico, já validado estável) e `load/k6/breakpoint.js` (rampa até quebrar, sem descida), este é o primeiro cenário que **desce** de propósito — o objetivo central é observar o HPA (`gitops/app/hpa.yaml`, `minReplicas: 2`/`maxReplicas: 6`) escalando **para baixo** depois de um pico, não só para cima.
+`load/run-waves-from-ec2.sh` runs `load/k6/waves.js` — audience rising and falling in waves ("pre-game" → "1st half" → "halftime" → "2nd half" → "goal spike" → "final whistle"), over ~23 minutes. Unlike `load/k6/baseline.js` (monotonic growth, already validated stable) and `load/k6/breakpoint.js` (ramp until breakage, no descent), this is the first scenario that **descends** on purpose — the central goal is to observe the HPA (`gitops/app/hpa.yaml`, `minReplicas: 2`/`maxReplicas: 6`) scaling **down** after a peak, not just up.
 
-O estágio "pico do gol" mira deliberadamente perto do teto real já encontrado em [`docs/runbooks/load/run-k6-breakpoint.md`](run-k6-breakpoint.md) (execução `PEAK_RATE=800`): `maxReplicas: 6` × `limits.cpu: 500m` = 3 cores agregados, ponto em que a latência sobe (fila) sem erros reais aparecerem. Cruzar esse ponto de propósito — e depois descer — é o que torna este um teste de **recuperação**, não só mais um breakpoint: a latência volta a cair e as réplicas voltam a `minReplicas: 2` depois que a onda passa, ou algo fica preso?
+The "goal spike" stage deliberately targets close to the real ceiling already found in [`docs/runbooks/load/run-k6-breakpoint.md`](run-k6-breakpoint.md) (the `PEAK_RATE=800` run): `maxReplicas: 6` × `limits.cpu: 500m` = 3 aggregate cores, the point where latency rises (queuing) without real errors appearing. Crossing that point on purpose — and then descending — is what makes this a **recovery** test, not just another breakpoint: does latency drop back down and do replicas return to `minReplicas: 2` after the wave passes, or does something get stuck?
 
-## Por quê
+## Why
 
-Nem o baseline nem o breakpoint testam scale-down. `docs/adr/012-hpa-cpu-autoscaling.md` valida o HPA escalando 2→3→5→6 sob carga sustentada crescente — nunca o caminho inverso, que é igualmente parte do comportamento esperado de um HPA em produção (economia de custo entre picos, não só absorção de pico).
+Neither the baseline nor the breakpoint test scale-down. `docs/adr/012-hpa-cpu-autoscaling.md` validates the HPA scaling 2→3→5→6 under sustained, growing load — never the reverse path, which is equally part of the expected behavior of an HPA in production (cost savings between peaks, not just peak absorption).
 
-## Como
+## How
 
 ```bash
 AWS_PROFILE=cloudlab ./load/run-waves-from-ec2.sh
 ```
 
-Escalar o pico deliberado entre execuções (sem editar código):
+Scale the deliberate peak between runs (without editing code):
 
 ```bash
 WAVE_PEAK_RATE=1000 AWS_PROFILE=cloudlab ./load/run-waves-from-ec2.sh
 ```
 
-`WAVE_PEAK_RATE` (default `700` req/s) é o topo do estágio "pico do gol" — os demais estágios escalam como fração dele (`pré-jogo` 15%, `1º tempo` 35%, `intervalo` 5%, `2º tempo` 45%, `apito final` 3%). A duração total (~23 minutos) é fixa, independente do valor.
+`WAVE_PEAK_RATE` (default `700` req/s) is the top of the "goal spike" stage — the other stages scale as a fraction of it (`pre-game` 15%, `1st half` 35%, `halftime` 5%, `2nd half` 45%, `final whistle` 3%). The total duration (~23 minutes) is fixed, regardless of the value.
 
-Roda de dentro da AWS via EC2 efêmera, mesmo padrão de `load/run-breakpoint-from-ec2.sh` (ver seção "Rodando o k6 de dentro da AWS" em `run-k6-breakpoint.md` — necessário para eliminar ruído de rede do cliente, especialmente relevante aqui já que o objetivo é medir a forma exata da curva de recuperação, não só um único número de pico). Pré-requisitos: os mesmos dos outros scripts (`aws`, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg` no PATH; `terraform apply` já rodou; ArgoCD sincronizado; `k6` instalado remotamente via SSM, não localmente).
+Runs from inside AWS via an ephemeral EC2 instance, the same pattern as `load/run-breakpoint-from-ec2.sh` (see the "Running k6 from inside AWS" section in `run-k6-breakpoint.md` — necessary to eliminate client-side network noise, especially relevant here since the goal is to measure the exact shape of the recovery curve, not just a single peak number). Prerequisites: the same as the other scripts (`aws`, `jq`, `terraform`, `kubectl`, `curl`, `ffmpeg` in the PATH; `terraform apply` already ran; ArgoCD synced; `k6` installed remotely via SSM, not locally).
 
-## Como ler o resultado
+## How to read the result
 
-Ao contrário do breakpoint, **este teste não deveria abortar** (`abortOnFail` não está setado em nenhum threshold) — o objetivo é observar a forma completa da curva, incluindo a degradação esperada no pico. Cruzar sempre com o Grafana/Prometheus na janela exata do teste:
+Unlike the breakpoint, **this test is not expected to abort** (`abortOnFail` is not set on any threshold) — the goal is to observe the full shape of the curve, including the expected degradation at the peak. Always cross-reference with Grafana/Prometheus in the exact test window:
 
-- **Réplicas do HPA:** confirmar 2 → 3 → 5 → 6 subindo até o "pico do gol", depois **voltando a 2** depois do "apito final" (`kubectl -n minitube-app get hpa api` logo após o teste, ou o histórico em `kube_deployment_status_replicas{namespace="minitube-app",deployment="api"}` no Prometheus).
-- **Latência (`http_req_duration{endpoint:api}`):** esperado subir durante o "pico do gol" (mesmo padrão do `PEAK_RATE=800` do breakpoint) e voltar a valores baixos (~50-190ms, faixa já observada nos outros testes) durante o "apito final" — se não voltar, é sinal de algo preso (réplicas não escalando para baixo, conexões penduradas).
-- **Taxa de erro:** esperado ficar perto de 0% durante todo o teste, inclusive no pico — a saturação observada no breakpoint é de fila/latência, não de erro.
-- **Vale do "intervalo":** confirmar que o HPA não escala para baixo cedo demais nem demora demais — comportamento normal do HPA tem uma janela de estabilização (`stabilizationWindowSeconds`, default do `autoscaling/v2` é 5 min para scale-down) que pode fazer o vale do intervalo (2-3 min) não ser longo o suficiente para uma descida completa antes do "2º tempo" subir de novo — isso é esperado, não um bug.
+- **HPA replicas:** confirm 2 → 3 → 5 → 6 climbing up to the "goal spike", then **returning to 2** after the "final whistle" (`kubectl -n minitube-app get hpa api` right after the test, or the history in `kube_deployment_status_replicas{namespace="minitube-app",deployment="api"}` in Prometheus).
+- **Latency (`http_req_duration{endpoint:api}`):** expected to rise during the "goal spike" (same pattern as the breakpoint's `PEAK_RATE=800`) and return to low values (~50-190ms, the range already observed in the other tests) during the "final whistle" — if it doesn't return, that's a sign something is stuck (replicas not scaling down, hanging connections).
+- **Error rate:** expected to stay near 0% throughout the test, including at the peak — the saturation observed in the breakpoint is queuing/latency, not errors.
+- **The "halftime" trough:** confirm the HPA doesn't scale down too early or take too long — normal HPA behavior has a stabilization window (`stabilizationWindowSeconds`, the `autoscaling/v2` default is 5 min for scale-down) that may make the halftime trough (2-3 min) not long enough for a full descent before the "2nd half" rises again — this is expected, not a bug.
 
-## Resultado da execução (2026-07-26) — scale-down confirmado, e um bug real de auto-recuperação encontrado
+## Test result (2026-07-26) — scale-down confirmed, and a real auto-recovery bug found
 
-Executado com `WAVE_PEAK_RATE=700` (default) contra a infra real, via `run-waves-from-ec2.sh`.
+Run with `WAVE_PEAK_RATE=700` (default) against the real infra, via `run-waves-from-ec2.sh`.
 
-**Pergunta central do teste respondida: sim, o HPA escala para baixo depois do pico**, confirmado pelo histórico completo de eventos (`kubectl -n minitube-app describe hpa api`), cobrindo o teste inteiro:
+**Central question of the test answered: yes, the HPA scales down after the peak**, confirmed by the complete event history (`kubectl -n minitube-app describe hpa api`), covering the entire test:
 
 ```
-SuccessfulRescale  New size: 3   (1º tempo)
-SuccessfulRescale  New size: 4   (2º tempo)
-SuccessfulRescale  New size: 5   (2º tempo)
-SuccessfulRescale  New size: 6   (pico do gol)
-SuccessfulRescale  New size: 3   (apito final) — "All metrics below target"
-SuccessfulRescale  New size: 2   (apito final) — "All metrics below target"
+SuccessfulRescale  New size: 3   (1st half)
+SuccessfulRescale  New size: 4   (2nd half)
+SuccessfulRescale  New size: 5   (2nd half)
+SuccessfulRescale  New size: 6   (goal spike)
+SuccessfulRescale  New size: 3   (final whistle) — "All metrics below target"
+SuccessfulRescale  New size: 2   (final whistle) — "All metrics below target"
 ```
 
-O padrão de subida-e-descida esperado aconteceu de ponta a ponta, sem intervenção manual — a réplica final, minutos depois do teste, estava de volta a `minReplicas: 2`.
+The expected rise-and-fall pattern happened end to end, without manual intervention — the final replica count, minutes after the test, was back at `minReplicas: 2`.
 
-**Mas o resultado do k6 em si não bateu com os testes anteriores:** `http_req_failed=0,31%` (contra 0,00% em todos os breakpoints, inclusive em `PEAK_RATE=800` — mais alto que os 700 daqui) e `http_req_duration{endpoint:api}` `p(95)=2,42s`, `max=27,97s`. A métrica agregada (`expected_response:true`, que mistura tráfego `api` com `playlist`/`segment`) também mostrou `p(95)=2,25s` — mas os `checks` confirmam que **`playlist status is 200` e `segment status is 200` nunca falharam**, só `healthz status is 200` e `video status is 200` — ou seja, o CloudFront/S3 nunca degradou; o número agregado só reflete que a maior parte do volume de requisições na janela era tráfego `api`.
+**But the k6 result itself did not match the previous tests:** `http_req_failed=0.31%` (versus 0.00% in every breakpoint, including at `PEAK_RATE=800` — higher than the 700 here) and `http_req_duration{endpoint:api}` `p(95)=2.42s`, `max=27.97s`. The aggregate metric (`expected_response:true`, which mixes `api` traffic with `playlist`/`segment`) also showed `p(95)=2.25s` — but the `checks` confirm that **`playlist status is 200` and `segment status is 200` never failed**, only `healthz status is 200` and `video status is 200` did — in other words, CloudFront/S3 never degraded; the aggregate number just reflects that most of the request volume in the window was `api` traffic.
 
-**Causa raiz confirmada via `kubectl get events` (não coincide com o comportamento visto em nenhum breakpoint anterior):**
+**Root cause confirmed via `kubectl get events` (does not match the behavior seen in any previous breakpoint):**
 
 ```
 Warning  Unhealthy  pod/api-...  Liveness probe failed: Get "http://.../api/healthz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
@@ -62,10 +62,10 @@ Warning  Unhealthy  pod/api-...  Readiness probe failed: Get "http://.../api/hea
 Normal   Killing    pod/api-...  Container api failed liveness probe, will be restarted
 ```
 
-Repetido em pelo menos 5 pods diferentes durante o estágio "pico do gol". **Achado: o `timeoutSeconds` default de 1s (nem `readinessProbe` nem `livenessProbe` em `gitops/app/deployment.yaml` definiam um valor explícito) é curto demais frente à latência real observada sob saturação** (`p(95)=2,42s` no `endpoint:api` durante o pico) — quando o pod fica CPU-pressionado perto do teto de `maxReplicas: 6`, até o `/api/healthz` (endpoint trivial, sem I/O) passa a responder mais devagar que 1s às vezes, porque compete pelo mesmo CPU limitado do processo. O `kubelet` então mata pods que estavam **sobrecarregados, não travados** — exatamente o anti-padrão documentado nas boas práticas do Kubernetes para liveness probes ("não deveriam depender de condições que o próprio processo não controla sozinho, como contenção de CPU"). O efeito é auto-amplificador: perder um pod no meio do pico reduz a capacidade disponível bem na hora em que ela mais falta, o oposto do que o HPA está tentando fazer.
+Repeated across at least 5 different pods during the "goal spike" stage. **Finding: the default `timeoutSeconds` of 1s (neither `readinessProbe` nor `livenessProbe` in `gitops/app/deployment.yaml` defined an explicit value) is too short given the real latency observed under saturation** (`p(95)=2.42s` on `endpoint:api` during the peak) — when the pod is CPU-pressured near the `maxReplicas: 6` ceiling, even `/api/healthz` (a trivial endpoint, no I/O) sometimes starts responding slower than 1s, because it competes for the same limited CPU as the process. `kubelet` then kills pods that were **overloaded, not stuck** — exactly the anti-pattern documented in Kubernetes best practices for liveness probes ("should not depend on conditions the process itself doesn't control alone, such as CPU contention"). The effect is self-amplifying: losing a pod in the middle of the peak reduces available capacity right when it's needed most, the opposite of what the HPA is trying to do.
 
-**Corrigido em `gitops/app/deployment.yaml`** (mesma branch/commit deste resultado): `readinessProbe.timeoutSeconds: 3`; `livenessProbe.timeoutSeconds: 5` + `failureThreshold: 5` (o liveness recebeu a folga maior porque é o único dos dois que **mata** o container — readiness só tira da rotação do Service, uma ação bem menos destrutiva sob sobrecarga transiente). Os valores foram calibrados acima do pior `p(95)` observado (2,42s) com margem.
+**Fixed in `gitops/app/deployment.yaml`** (same branch/commit as this result): `readinessProbe.timeoutSeconds: 3`; `livenessProbe.timeoutSeconds: 5` + `failureThreshold: 5` (the liveness probe got the larger margin because it's the only one of the two that **kills** the container — readiness just removes it from the Service's rotation, a much less destructive action under transient overload). The values were calibrated above the worst observed `p(95)` (2.42s) with margin.
 
-**Não revalidado nesta sessão** — o fix ainda não foi confirmado com uma nova execução do `waves.js` (rodar de novo custa outros ~25-30 minutos). Candidato natural para a próxima vez que este cenário rodar: confirmar que os eventos `Unhealthy`/`Killing` somem do log durante o mesmo "pico do gol".
+**Not revalidated in this session** — the fix has not yet been confirmed with a new run of `waves.js` (running it again costs another ~25-30 minutes). Natural candidate for the next time this scenario runs: confirm that the `Unhealthy`/`Killing` events disappear from the log during the same "goal spike".
 
-**Conclusão para o relatório final da Fase 6:** este foi o achado mais valioso desta fase em termos de "o que quebrou primeiro" — não foi capacidade agregada (o HPA absorveu o pico e devolveu a capacidade depois, como esperado), foi uma probe mal calibrada amplificando a própria saturação que o HPA estava tentando resolver.
+**Conclusion for the Phase 6 final report:** this was the most valuable finding of this phase in terms of "what broke first" — it wasn't aggregate capacity (the HPA absorbed the peak and gave back capacity afterward, as expected), it was a miscalibrated probe amplifying the very saturation the HPA was trying to resolve.

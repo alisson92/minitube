@@ -1,40 +1,40 @@
-# Chaos: matar um pod da API sob carga
+# Chaos: kill an API pod under load
 
-## O quê
+## What
 
-`chaos/kill-api-pod.sh` gera tráfego leve contra `/api/healthz` (via `port-forward`) e, no meio da janela, deleta um dos pods da réplica `api` (`kubectl delete pod`). Mede a taxa de erro do lado do cliente durante toda a janela e confirma que o `ReplicaSet` recria o pod.
+`chaos/kill-api-pod.sh` generates light traffic against `/api/healthz` (via `port-forward`) and, midway through the window, deletes one of the `api` replica's pods (`kubectl delete pod`). It measures the client-side error rate throughout the whole window and confirms the `ReplicaSet` recreates the pod.
 
-## Por quê
+## Why
 
-`gitops/app/hpa.yaml` fixa `minReplicas: 2` e `gitops/app/pdb.yaml` garante `minAvailable: 1`. Esses objetos existirem não prova que a perda de um pod é absorvida sem impacto perceptível — só um teste real prova (`docs/engineering-standards.md` §11).
+`gitops/app/hpa.yaml` sets `minReplicas: 2` and `gitops/app/pdb.yaml` guarantees `minAvailable: 1`. The mere existence of these objects doesn't prove that losing one pod is absorbed without noticeable impact — only a real test does (`docs/engineering-standards.md` §11).
 
-## Como
+## How
 
 ```bash
 AWS_PROFILE=cloudlab ./chaos/kill-api-pod.sh
 ```
 
-Variáveis de ambiente opcionais:
-- `TRAFFIC_WINDOW_SECONDS` (default 90) — duração total da janela de tráfego.
-- `KILL_AFTER_SECONDS` (default 15) — quando, dentro da janela, o pod é morto.
-- `MAX_ERROR_RATE_PERCENT` (default 1) — limiar de PASS/FAIL.
+Optional environment variables:
+- `TRAFFIC_WINDOW_SECONDS` (default 90) — total duration of the traffic window.
+- `KILL_AFTER_SECONDS` (default 15) — when, within the window, the pod is killed.
+- `MAX_ERROR_RATE_PERCENT` (default 1) — PASS/FAIL threshold.
 
-Nada precisa ser revertido no cluster ao final — o Kubernetes recria o pod deletado sozinho, isso *é* o comportamento sob teste. O script só limpa o `port-forward` local e arquivos temporários (`trap cleanup EXIT`).
+Nothing needs to be reverted on the cluster at the end — Kubernetes recreates the deleted pod on its own, that *is* the behavior under test. The script only cleans up the local `port-forward` and temporary files (`trap cleanup EXIT`).
 
-## Como ler o resultado
+## How to read the result
 
-- **PASS:** taxa de erro do cliente ficou dentro do limiar — a perda de um pod não foi visível para quem consome a API.
-- **FAIL:** taxa de erro acima do limiar. Investigar:
-  - `kubectl -n minitube-app get hpa api` — a réplica substituta demorou para ficar `Ready`? (`readinessProbe` em `gitops/app/deployment.yaml`, `initialDelaySeconds: 5`/`periodSeconds: 10`)
-  - `kubectl -n minitube-app describe pdb api` — o PDB bloqueou alguma disrupção concorrente?
-  - Se `ready_replicas < 2` no pré-check, o script falha antes de começar — a Deployment precisa estar com o HPA já estabilizado em pelo menos 2 réplicas.
+- **PASS:** client error rate stayed within the threshold — losing a pod wasn't visible to API consumers.
+- **FAIL:** error rate above the threshold. Investigate:
+  - `kubectl -n minitube-app get hpa api` — did the replacement replica take too long to become `Ready`? (`readinessProbe` in `gitops/app/deployment.yaml`, `initialDelaySeconds: 5`/`periodSeconds: 10`)
+  - `kubectl -n minitube-app describe pdb api` — did the PDB block any concurrent disruption?
+  - If `ready_replicas < 2` in the pre-check, the script fails before it starts — the Deployment needs to already have the HPA stabilized at at least 2 replicas.
 
-## Resultado da execução (2026-07-26) — PASS
+## Run result (2026-07-26) — PASS
 
-Executado contra a infra real (2 réplicas prontas, HPA em `cpu: 3%/70%`). Pod `api-7b868f7f45-kmvv6` deletado aos 15s da janela; o `ReplicaSet` criou `api-7b868f7f45-m6zlg` em seguida.
+Run against the real infra (2 ready replicas, HPA at `cpu: 3%/70%`). Pod `api-7b868f7f45-kmvv6` deleted 15s into the window; the `ReplicaSet` created `api-7b868f7f45-m6zlg` right after.
 
-- **Total de requisições:** 94 (janela de 90s, uma a cada 0,5s).
-- **Não-200:** 0.
-- **Taxa de erro:** 0%.
+- **Total requests:** 94 (90s window, one every 0.5s).
+- **Non-200:** 0.
+- **Error rate:** 0%.
 
-`PASS`: `minReplicas: 2` + o `PodDisruptionBudget` absorveram a perda do pod sem nenhum impacto perceptível do lado do cliente — exatamente o comportamento esperado.
+`PASS`: `minReplicas: 2` + the `PodDisruptionBudget` absorbed the pod loss with no noticeable client-side impact — exactly the expected behavior.
