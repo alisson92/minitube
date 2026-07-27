@@ -161,4 +161,18 @@ aws cloudfront list-distributions --profile cloudlab --query 'DistributionList.I
 
 Todas devem retornar vazio. Se o `destroy` travar com `DependencyViolation` no Internet Gateway/subnets — o sintoma clássico do órfão do `aws-load-balancer-controller` (ALB/security groups sobrevivendo ao node group) — a causa raiz já foi corrigida estruturalmente pelo [ADR 010](../adr/010-lbc-orphan-cleanup-and-alb-wait.md); se acontecer mesmo assim, o playbook de recuperação manual está na decisão 6 do [ADR 009](../adr/009-eks-access-entries-and-api-edge-routing.md).
 
+⚠️ **Se o `destroy` travar em `kubernetes_namespace_v1.argocd`/`kubernetes_namespace_v1.platform` (`Still destroying...` por vários minutos, terminando em `Error: context deadline exceeded`):** confira a condição do namespace —
+
+```bash
+kubectl get namespace minitube-platform argocd -o yaml | grep -A5 "conditions:"
+```
+
+Se aparecer `reason: DiscoveryFailed` mencionando `metrics.k8s.io/v1beta1: stale GroupVersion discovery`: o `APIService` (cluster-scoped) do `metrics-server` ficou registrado apontando pra um backend que o ArgoCD já removeu ao podar a `Application` `metrics-server` — enquanto essa `APIService` quebrada existir, a descoberta de API do cluster inteiro falha, e o controller de finalização de namespace (que precisa dessa descoberta completa) trava para **qualquer** namespace, não só o do metrics-server. Sem risco de recurso órfão (é só metadado de registro da API, nenhum dado real envolvido):
+
+```bash
+kubectl delete apiservice v1beta1.metrics.k8s.io
+```
+
+Os namespaces devem terminar em segundos depois disso — reexecute `terraform destroy` para retomar dali. Causa raiz: desde que `kubernetes_namespace_v1.argocd`/`.platform` passaram a ser gerenciados diretamente pelo Terraform (necessário para `kubernetes_secret_v1.grafana_admin` — ver decisão 12 do [ADR 011](../adr/011-observability-stack.md)), o `destroy` passou a esperar a finalização graciosa desses namespaces via API do Kubernetes antes de destruir o EKS — antes, a destruição do cluster levava tudo junto sem esperar, então essa corrida nunca era visível.
+
 `terraform/bootstrap-iam/` e `terraform/bootstrap/` **não são tocados** — ficam de pé entre sessões por design (ver "Estado atual" no [`CLAUDE.md`](../../CLAUDE.md)).
