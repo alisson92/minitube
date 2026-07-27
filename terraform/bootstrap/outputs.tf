@@ -37,3 +37,18 @@ output "argocd_repo_ssh_private_key_parameter_name" {
   description = "SSM Parameter Store name holding the ArgoCD repo SSH private key, read by terraform/envs/lab (data \"aws_ssm_parameter\") -- never via terraform_remote_state, same pattern as the two outputs above"
   value       = aws_ssm_parameter.argocd_repo_ssh_private_key.name
 }
+
+output "architecture_site_url" {
+  description = "Public URL of the persistent architecture showcase page"
+  value       = "https://${aws_route53_record.architecture_site.name}"
+}
+
+output "architecture_site_bucket_name" {
+  description = "S3 bucket serving the architecture showcase page, read by scripts/deploy-architecture-site.sh instead of being hardcoded"
+  value       = aws_s3_bucket.architecture_site.id
+}
+
+output "architecture_site_cloudfront_distribution_id" {
+  description = "CloudFront distribution ID for the architecture showcase page, read by scripts/deploy-architecture-site.sh to invalidate the cache after each deploy"
+  value       = aws_cloudfront_distribution.architecture_site.id
+}
