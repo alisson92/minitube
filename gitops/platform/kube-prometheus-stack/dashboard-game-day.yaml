@@ -18,7 +18,7 @@ metadata:
 data:
   game-day.json: |
     {
-      "title": "Dia do Jogo",
+      "title": "Game Day",
       "tags": ["minitube", "phase-6"],
       "timezone": "browser",
       "schemaVersion": 39,
@@ -57,8 +57,8 @@ data:
       "panels": [
         {
           "id": 1,
-          "title": "Hit ratio do CDN (CloudFront)",
-          "description": "Requer 'Additional metrics' habilitado na distribution -- se vazio, ver o header X-Cache confirmado em scripts/validate-cloudfront-dns-tls.sh como evidência alternativa.",
+          "title": "CDN Hit Ratio (CloudFront)",
+          "description": "Requires 'Additional metrics' enabled on the distribution -- if empty, see the X-Cache header confirmed in scripts/validate-cloudfront-dns-tls.sh as alternative evidence.",
           "type": "timeseries",
           "datasource": "CloudWatch",
           "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
@@ -76,8 +76,8 @@ data:
         },
         {
           "id": 2,
-          "title": "Latência da API (p95 / p99)",
-          "description": "Limiares do SLO (gitops/platform/kube-prometheus-stack/slo-rules.yaml): warning 250ms, critical 800ms.",
+          "title": "API Latency (p95 / p99)",
+          "description": "SLO thresholds (gitops/platform/kube-prometheus-stack/slo-rules.yaml): warning 250ms, critical 800ms.",
           "type": "timeseries",
           "datasource": "Prometheus",
           "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
@@ -110,8 +110,8 @@ data:
         },
         {
           "id": 3,
-          "title": "Saturação (réplicas do HPA + CPU dos nodes)",
-          "description": "Confirma o padrão de escala das ondas (docs/runbooks/load/run-k6-waves.md): réplicas subindo e descendo, CPU dos nodes com folga mesmo no pico.",
+          "title": "Saturation (HPA replicas + node CPU)",
+          "description": "Confirms the wave scaling pattern (docs/runbooks/load/run-k6-waves.md): replicas rising and falling, node CPU with headroom even at peak.",
           "type": "timeseries",
           "datasource": "Prometheus",
           "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
@@ -120,18 +120,18 @@ data:
             {
               "refId": "A",
               "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"minitube-app\", horizontalpodautoscaler=\"api\"}",
-              "legendFormat": "réplicas api"
+              "legendFormat": "api replicas"
             },
             {
               "refId": "B",
               "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-              "legendFormat": "CPU node {{instance}}"
+              "legendFormat": "node CPU {{instance}}"
             }
           ]
         },
         {
           "id": 4,
-          "title": "Erros da ALB (5xx)",
+          "title": "ALB Errors (5xx)",
           "type": "timeseries",
           "datasource": "CloudWatch",
           "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },

@@ -1,46 +1,46 @@
-# Motivação — por que este projeto existe
+# Motivation — why this project exists
 
-## A pergunta original
+## The original question
 
-Tudo partiu de uma curiosidade durante a Copa do Mundo: **como a infraestrutura do YouTube consegue suportar um evento desse tamanho?** As transmissões dos jogos pela CazéTV bateram recordes de público simultâneo na plataforma — milhões de pessoas assistindo à mesma live, ao mesmo tempo, sem que nada caísse.
+It all started with a curiosity during the World Cup: **how does YouTube's infrastructure hold up under an event this size?** CazéTV's live match broadcasts broke the platform's simultaneous-audience records — millions of people watching the same live stream, at the same instant, with nothing going down.
 
-A pergunta que ficou foi: *o que acontece por baixo dos panos para isso funcionar?*
+The question that stuck was: *what happens under the hood to make that work?*
 
-## A física do problema
+## The physics of the problem
 
-Um stream em 1080p consome na ordem de 5 Mbps por espectador. Multiplicando por milhões de espectadores simultâneos, o tráfego agregado chega à casa dos **terabits por segundo** — nenhum servidor ou datacenter único é capaz de servir isso.
+A 1080p stream consumes on the order of 5 Mbps per viewer. Multiply that by millions of simultaneous viewers, and aggregate traffic reaches the **terabits-per-second** range — no single server or datacenter is capable of serving that.
 
-A resposta do YouTube (e de qualquer plataforma de streaming em escala) se apoia em alguns princípios:
+YouTube's answer (and that of any streaming platform at scale) rests on a few principles:
 
-1. **Vídeo é cacheável.** O mesmo segmento de 4 segundos é idêntico para todo mundo. Isso permite que a carga seja absorvida na borda (CDN), perto do espectador — no caso do Google, com servidores de cache instalados dentro dos próprios provedores de internet (Google Global Cache).
-2. **Cada camada filtra tráfego.** A imensa maioria das requisições morre no cache da borda. Só os *cache misses* descem até o balanceamento global (anycast) e, por fim, até a origem.
-3. **A origem escala horizontalmente.** Clusters de contêineres (Borg, o precursor do Kubernetes) com autoscaling, pipeline de transcodificação distribuído (cada vídeo vira dezenas de variantes de qualidade servidas em segmentos HLS/DASH) e práticas de SRE — SLOs, error budgets, resposta a incidentes.
+1. **Video is cacheable.** The same 4-second segment is identical for everyone. That lets the load be absorbed at the edge (CDN), close to the viewer — in Google's case, with cache servers installed inside ISPs themselves (Google Global Cache).
+2. **Every layer filters traffic.** The vast majority of requests die at the edge cache. Only *cache misses* make it down to global load balancing (anycast) and, finally, to the origin.
+3. **The origin scales horizontally.** Container clusters (Borg, Kubernetes' predecessor) with autoscaling, a distributed transcoding pipeline (each video becomes dozens of quality variants served as HLS/DASH segments), and SRE practices — SLOs, error budgets, incident response.
 
-## O que este projeto reproduz
+## What this project reproduces
 
-O **MiniTube** é uma reprodução em miniatura dessa arquitetura, construída do zero, para praticar de forma integrada as disciplinas de DevOps e SRE do universo cloud native:
+**MiniTube** is a miniature reproduction of that architecture, built from scratch, to practice cloud-native DevOps and SRE disciplines in an integrated way:
 
-| Peça do mundo real (YouTube)          | Equivalente no MiniTube                       |
+| Real-world piece (YouTube)          | MiniTube equivalent                       |
 | ------------------------------------- | --------------------------------------------- |
-| Google Global Cache / CDN             | CloudFront servindo segmentos HLS             |
-| Armazenamento de vídeo                | S3 como origem dos segmentos                  |
-| Borg (clusters de contêineres)        | EKS (Kubernetes gerenciado na AWS)            |
-| Pipeline de transcodificação          | Job com FFmpeg gerando variantes HLS          |
-| Deploys em escala                     | GitOps com ArgoCD                             |
-| Monitoração e SRE                     | Prometheus, Grafana, Loki, SLOs               |
-| A torcida chegando no gol             | Testes de carga com k6 em ondas               |
+| Google Global Cache / CDN             | CloudFront serving HLS segments             |
+| Video storage at scale                | S3 as the segment origin                  |
+| Borg (container clusters)        | EKS (managed Kubernetes on AWS)            |
+| Transcoding pipeline          | FFmpeg Job producing HLS variants          |
+| Fleet-scale deploys                     | GitOps with Argo CD                             |
+| Monitoring and SRE                     | Prometheus, Grafana, Loki, SLOs               |
+| The crowd arriving for the goal             | k6 load tests in waves                 |
 
-O objetivo final é **assistir ao "dia do jogo" pelos dashboards**: disparar ondas de tráfego simulando a torcida, ver a borda absorver a carga, o autoscaling reagir e os SLOs se comportarem — como um SRE de plantão.
+The end goal is to **watch "game day" through the dashboards**: fire off traffic waves simulating the crowd, watch the edge absorb the load, autoscaling react, and SLOs behave — like an SRE on call.
 
-## Por que a infraestrutura é efêmera
+## Why the infrastructure is ephemeral
 
-O projeto roda em cloud real (AWS) porque custo, rede e IAM fazem parte do aprendizado. Mas serviços gerenciados como o EKS cobram pelo control plane **mesmo com o cluster ocioso** — e é exatamente aí que o Terraform fecha o ciclo: ao final de cada bateria de testes, um `terraform destroy` derruba tudo e zera os custos.
+The project runs on real cloud (AWS) because cost, networking, and IAM are part of the learning. But managed services like EKS bill for the control plane **even with the cluster idle** — and that's exactly where Terraform closes the loop: at the end of every test run, a `terraform destroy` tears everything down and zeroes out the cost.
 
-Isso não é uma limitação — é o teste de qualidade do projeto: se destruir e recriar o ambiente dói, a infraestrutura como código ainda não está boa o suficiente.
+That's not a limitation — it's the project's quality test: if destroying and recreating the environment hurts, the infrastructure-as-code isn't good enough yet.
 
-## Perguntas que quero saber responder ao final
+## Questions I want to be able to answer by the end
 
-- Por que o cache na borda é o que torna um evento como a Copa viável, e como medir isso (hit ratio)?
-- Como um cluster Kubernetes reage, na prática, a uma onda súbita de tráfego (HPA, provisionamento de nodes)?
-- Como definir e monitorar SLOs de latência e disponibilidade em um serviço de streaming?
-- O que quebra primeiro sob carga — e como um SRE investiga e responde a isso?
+- Why does edge caching make an event like the World Cup viable at all, and how do you measure that (hit ratio)?
+- How does a Kubernetes cluster actually react to a sudden traffic wave (HPA, node provisioning)?
+- How do you define and monitor latency and availability SLOs for a streaming service?
+- What breaks first under load — and how does an SRE investigate and respond to it?

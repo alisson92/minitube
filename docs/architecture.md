@@ -1,72 +1,72 @@
-# Arquitetura
+# Architecture
 
-> Detalha, com diagramas, a arquitetura descrita em resumo no [`CLAUDE.md`](../CLAUDE.md#arquitetura-alvo). Cada decisão aqui já foi documentada em algum ADR — este documento **não repete o raciocínio completo**, só amarra o desenho geral e linka para onde aprofundar. Serve de referência técnica e de material-base para a divulgação do projeto (ver [`docs/showcase-urls.md`](showcase-urls.md)).
+> Details, with diagrams, the architecture summarized in [`CLAUDE.md`](../CLAUDE.md#target-architecture). Every decision here is already documented in some ADR — this document **doesn't repeat the full reasoning**, it just ties the overall design together and links to where to go deeper. Serves as technical reference and base material for promoting the project (see [`docs/showcase-urls.md`](showcase-urls.md)).
 
-## Por que essa arquitetura
+## Why this architecture
 
-A pergunta que motiva o projeto inteiro ([`000-motivation.md`](000-motivation.md)): como o YouTube aguenta um pico de audiência do tamanho de uma final de Copa do Mundo? A resposta curta orienta as quatro decisões centrais abaixo — o resto da arquitetura existe para sustentar essas quatro:
+The question that motivates the entire project ([`000-motivation.md`](000-motivation.md)): how does YouTube withstand an audience spike the size of a World Cup final? The short answer drives the four central decisions below — the rest of the architecture exists to support these four:
 
-1. **Cache na borda absorve a imensa maioria do tráfego.** Vídeo é conteúdo estático depois de gerado — servir os segmentos HLS via CloudFront, direto do S3, significa que a origem nunca vê a maior parte das requisições. Rotas dinâmicas (`/api/*`) são a exceção deliberada, roteadas sem cache.
-2. **A origem escala horizontalmente, não verticalmente.** A API roda em EKS com HPA (CPU), não numa instância única maior — o teto de capacidade é uma configuração (`maxReplicas`), não um limite físico de hardware.
-3. **Tudo reconciliado a partir do Git, nada aplicado à mão.** GitOps via ArgoCD elimina uma classe inteira de incidente (drift entre o que foi de fato configurado e o que está documentado) — decisão central do projeto, não um detalhe de implementação.
-4. **Infraestrutura efêmera por padrão.** `envs/lab` inteiro (VPC, EKS, CloudFront) sobe e desce a cada sessão; só o que tem custo baixo e fixo persiste (state, DNS, ECR, IAM).
+1. **Edge caching absorbs the vast majority of traffic.** Video is static content once generated — serving HLS segments via CloudFront, straight from S3, means the origin never sees most requests. Dynamic routes (`/api/*`) are the deliberate exception, routed with no cache.
+2. **The origin scales horizontally, not vertically.** The API runs on EKS with an HPA (CPU-based), not on one bigger instance — the capacity ceiling is a configuration value (`maxReplicas`), not a physical hardware limit.
+3. **Everything reconciled from Git, nothing applied by hand.** GitOps via Argo CD eliminates an entire class of incident (drift between what was actually configured and what's documented) — a central decision of the project, not an implementation detail.
+4. **Ephemeral infrastructure by default.** All of `envs/lab` (VPC, EKS, CloudFront) comes up and goes down every session; only what has low, fixed cost persists (state, DNS, ECR, IAM).
 
-## 1 — Infraestrutura e rede
+## 1 — Infrastructure and network
 
 ```mermaid
 flowchart TB
-    Viewer(["Espectador"])
+    Viewer(["Viewer"])
 
-    subgraph Bootstrap["terraform/bootstrap — persistente"]
+    subgraph Bootstrap["terraform/bootstrap — persistent"]
         R53["Route 53\nhosted zone"]
         ACM["ACM wildcard\n*.minitube.projetodevops.com.br"]
     end
 
     CF["CloudFront\n(2 origins, price class 100)"]
 
-    subgraph VPC["VPC — 2 AZs (efêmero, envs/lab)"]
-        subgraph Pub["Subnets públicas"]
-            NAT["NAT Gateway\n(1x, só na AZ-a)"]
+    subgraph VPC["VPC — 2 AZs (ephemeral, envs/lab)"]
+        subgraph Pub["Public subnets"]
+            NAT["NAT Gateway\n(1x, AZ-a only)"]
             ALB["ALB\nIngressGroup: minitube"]
         end
-        subgraph Priv["Subnets privadas"]
-            EKS["EKS node group SPOT\nt3.medium, min=max=desired=3"]
+        subgraph Priv["Private subnets"]
+            EKS["EKS SPOT node group\nt3.medium, min=max=desired=3"]
         end
     end
 
-    S3raw[("S3 raw/\nprivado")]
+    S3raw[("S3 raw/\nprivate")]
     S3hls[("S3 hls/\nvia OAC")]
 
-    Viewer -->|"app.&lt;domínio&gt;"| CF
-    Viewer -->|"argocd./grafana.&lt;domínio&gt;\n(sem CDN, direto na ALB)"| ALB
-    R53 -.->|resolve os 3 hosts| CF
+    Viewer -->|"app.&lt;domain&gt;"| CF
+    Viewer -->|"argocd./grafana.&lt;domain&gt;\n(no CDN, straight to ALB)"| ALB
+    R53 -.->|resolves all 3 hosts| CF
     R53 -.-> ALB
-    ACM -.->|TLS, mesmo certificado| CF
+    ACM -.->|TLS, same certificate| CF
     ACM -.-> ALB
     CF -->|"default: cache HLS"| S3hls
     CF -->|"/api/*: CachingDisabled"| ALB
     ALB --> EKS
-    EKS -->|IRSA, sem credencial estática| S3raw
+    EKS -->|IRSA, no static credential| S3raw
     EKS -->|IRSA| S3hls
-    Priv -.->|saída via| NAT
+    Priv -.->|egress via| NAT
 ```
 
-**Por quê:**
-- **1 NAT Gateway só**, não um por AZ — custo controlado, é o "single point of egress" documentado no `terraform/modules/vpc`. Trade-off consciente (resiliência cross-AZ por custo), coerente com o princípio de custo do `CLAUDE.md`.
-- **Node group SPOT** — instâncias mais baratas para uma carga que tolera interrupção (a API tem PDB e réplicas ≥2; o transcoder é um Job, não um serviço contínuo). `min=max=desired=3` porque o limite real hoje é o teto de ENI/IP por nó (`t3.medium`), não CPU — ver [ADR 013](adr/013-terraform-vpc-eks-modules.md).
-- **`app.<domínio>` não passa pela ALB para servir vídeo** — CloudFront lê o S3 direto (origin `s3-video`, OAC). Só `/api/*` (upload, status) atravessa a ALB, sem cache.
-- **`argocd.<domínio>` e `grafana.<domínio>` não passam pelo CloudFront** — vão direto na ALB. Decisão registrada no [ADR 008](adr/008-cloudfront-dns-tls.md): são interfaces operacionais, não conteúdo de audiência, cachear ou passar pela CDN não traria benefício.
-- **Um único certificado ACM wildcard, gerado uma vez em `terraform/bootstrap/`** ([ADR 001](adr/001-terraform-state-backend.md)/[ADR 008](adr/008-cloudfront-dns-tls.md)) — reaplicações de `envs/lab` só leem esse certificado via `data source`, nunca reemitem.
+**Why:**
+- **Just 1 NAT Gateway**, not one per AZ — cost-controlled, the "single point of egress" documented in `terraform/modules/vpc`. A conscious trade-off (cross-AZ resilience for cost), consistent with `CLAUDE.md`'s cost principle.
+- **SPOT node group** — cheaper instances for a workload that tolerates interruption (the API has a PDB and ≥2 replicas; the transcoder is a Job, not a long-running service). `min=max=desired=3` because the real limit today is the ENI/IP ceiling per node (`t3.medium`), not CPU — see [ADR 013](adr/013-terraform-vpc-eks-modules.md).
+- **`app.<domain>` never touches the ALB to serve video** — CloudFront reads S3 directly (origin `s3-video`, OAC). Only `/api/*` (upload, status) crosses the ALB, uncached.
+- **`argocd.<domain>` and `grafana.<domain>` skip CloudFront** — they go straight to the ALB. Decision recorded in [ADR 008](adr/008-cloudfront-dns-tls.md): they're operational interfaces, not audience content, caching or going through the CDN would bring no benefit.
+- **A single wildcard ACM certificate, issued once in `terraform/bootstrap/`** ([ADR 001](adr/001-terraform-state-backend.md)/[ADR 008](adr/008-cloudfront-dns-tls.md)) — re-applies of `envs/lab` only ever read this certificate via a `data source`, never reissue it.
 
-## 2 — GitOps e plataforma
+## 2 — GitOps and platform
 
 ```mermaid
 flowchart LR
     Git["Git — main\napp/ + gitops/"]
-    ArgoCD["ArgoCD\n(instalado via Terraform,\nnão GitOps)"]
-    AoA["App of Apps\n(chart argocd-apps)"]
+    ArgoCD["Argo CD\n(installed via Terraform,\nnot GitOps)"]
+    AoA["App of Apps\n(argocd-apps chart)"]
 
-    Git -->|"pull, reconciliação contínua\n(nunca kubectl apply manual)"| ArgoCD
+    Git -->|"pull, continuous reconciliation\n(never a manual kubectl apply)"| ArgoCD
     ArgoCD --> AoA
 
     subgraph NSApp["ns: minitube-app"]
@@ -78,93 +78,93 @@ flowchart LR
     end
 
     subgraph NSArgo["ns: argocd"]
-        Self["ArgoCD server/repo-server/\napplication-controller"]
+        Self["Argo CD server/repo-server/\napplication-controller"]
     end
 
     AoA -->|"Application: app"| NSApp
-    AoA -->|"Application: platform\n(directory recursivo)"| NSPlat
-    AoA -->|"8 Applications standalone\n(1 por addon, multi-source)"| NSPlat
+    AoA -->|"Application: platform\n(recursive directory)"| NSPlat
+    AoA -->|"8 standalone Applications\n(1 per add-on, multi-source)"| NSPlat
 ```
 
-**Por quê:**
-- **App of Apps** ([ADR 007](adr/007-argocd-gitops-bootstrap.md)) — o bootstrap do ArgoCD fica declarativo: um único `helm_release` no Terraform declara as 10 `Application`s, sem precisar de nenhum `kubectl apply` inicial fora do Terraform.
-- **Padrão multi-source em cada addon de plataforma** (`source[0]` = `values.yaml` versionado neste repo, `source[1]` = chart Helm oficial) — permite usar o chart oficial upstream sem fazer fork, mantendo a configuração específica do projeto (ARNs de IRSA, hosts) versionada e revisável.
-- **`kube-prometheus-stack` exige `ServerSideApply=true`** — os CRDs do Prometheus Operator excedem o limite de tamanho do client-side apply padrão do Kubernetes.
-- **ArgoCD em si nasce do Terraform, não do Git** — dependência circular óbvia (não dá para o ArgoCD reconciliar a própria instalação antes de existir); é a única exceção documentada ao princípio "tudo é GitOps".
+**Why:**
+- **App of Apps** ([ADR 007](adr/007-argocd-gitops-bootstrap.md)) — Argo CD's bootstrap stays declarative: a single `helm_release` in Terraform declares all 10 `Application`s, with no initial `kubectl apply` needed outside of Terraform.
+- **Multi-source pattern on every platform add-on** (`source[0]` = this repo's own versioned `values.yaml`, `source[1]` = the official Helm chart) — lets us use the official upstream chart with no fork, while keeping project-specific config (IRSA ARNs, hosts) versioned and reviewable.
+- **`kube-prometheus-stack` requires `ServerSideApply=true`** — the Prometheus Operator's CRDs exceed Kubernetes' default client-side apply size limit.
+- **Argo CD itself is born from Terraform, not from Git** — an obvious circular dependency (Argo CD can't reconcile its own installation before it exists); it's the only documented exception to the "everything is GitOps" principle.
 
-## 3 — Fluxo de vídeo: upload, transcodificação e reprodução
+## 3 — Video flow: upload, transcoding, and playback
 
 ```mermaid
 sequenceDiagram
-    participant C as Cliente
+    participant C as Client
     participant CF as CloudFront
     participant ALB
-    participant API as Pod api (ns minitube-app)
-    participant K8s as API do Kubernetes
+    participant API as api Pod (ns minitube-app)
+    participant K8s as Kubernetes API
     participant T as Job transcode-{id}
     participant S3
 
-    Note over C,S3: Upload e transcodificação
+    Note over C,S3: Upload and transcoding
     C->>CF: POST /api/videos (upload)
     CF->>ALB: /api/* — CachingDisabled
-    ALB->>API: encaminha
-    API->>S3: PutObject raw/{id} (IRSA, sem credencial estática)
-    API->>K8s: cria Job transcode-{id} (SA transcoder, TTL 3600s)
-    K8s->>T: agenda o pod
+    ALB->>API: forwards
+    API->>S3: PutObject raw/{id} (IRSA, no static credential)
+    API->>K8s: creates Job transcode-{id} (SA transcoder, TTL 3600s)
+    K8s->>T: schedules the pod
     T->>S3: GetObject raw/{id} (IRSA)
-    T->>T: ffmpeg → HLS (720p, segmentos de 4s)
-    T->>S3: PutObject hls/{id}/* (playlist + segmentos)
+    T->>T: ffmpeg → HLS (720p, 4s segments)
+    T->>S3: PutObject hls/{id}/* (playlist + segments)
 
-    Note over C,S3: Reprodução (o caminho que a CDN existe para otimizar)
-    C->>CF: GET hls/{id}/playlist.m3u8 + segmentos
-    alt cache hit (comum)
-        CF-->>C: serve da borda, S3 nunca é tocado
-    else cache miss (primeira requisição)
-        CF->>S3: busca no origin (OAC)
-        S3-->>CF: objeto
-        CF-->>C: serve e armazena em cache
+    Note over C,S3: Playback (the path the CDN exists to optimize)
+    C->>CF: GET hls/{id}/playlist.m3u8 + segments
+    alt cache hit (common)
+        CF-->>C: served at the edge, S3 never touched
+    else cache miss (first request)
+        CF->>S3: fetches from origin (OAC)
+        S3-->>CF: object
+        CF-->>C: serves it and caches it
     end
 ```
 
-**Por quê:**
-- **Transcoder como Job Kubernetes, não um Deployment de longa duração** ([ADR 006](adr/006-app-irsa-and-job-orchestration.md)) — transcodificação é um trabalho de execução única; um Job com `ttl_seconds_after_finished` se autolimpa, sem precisar de scheduler externo.
-- **Uma única IAM role IRSA compartilhada** entre os ServiceAccounts `api` e `transcoder` — ambos só precisam de `s3:GetObject`/`PutObject`/`ListBucket` no mesmo bucket; nenhum dos dois usa uma credencial estática AWS.
-- **`raw/` nunca é servido publicamente** — a bucket policy do S3 restringe a leitura via CloudFront a `hls/*`; o vídeo bruto do upload não é acessível fora do fluxo de transcodificação.
-- **O header `X-Cache` da resposta é a evidência funcional real** de que a CDN está absorvendo tráfego — validado em `scripts/validate-cloudfront-dns-tls.sh`, é o mesmo dado que compõe o checklist de prints em [`showcase-urls.md`](showcase-urls.md).
+**Why:**
+- **Transcoder as a Kubernetes Job, not a long-running Deployment** ([ADR 006](adr/006-app-irsa-and-job-orchestration.md)) — transcoding is one-shot work; a Job with `ttl_seconds_after_finished` self-cleans, with no external scheduler needed.
+- **A single shared IRSA IAM role** for both the `api` and `transcoder` ServiceAccounts — both only need `s3:GetObject`/`PutObject`/`ListBucket` on the same bucket; neither uses a static AWS credential.
+- **`raw/` is never served publicly** — the S3 bucket policy restricts CloudFront reads to `hls/*`; the raw uploaded video isn't reachable outside the transcoding flow.
+- **The response's `X-Cache` header is the real functional proof** the CDN is absorbing traffic — validated in `scripts/validate-cloudfront-dns-tls.sh`, it's the same data point used in the screenshot checklist in [`showcase-urls.md`](showcase-urls.md).
 
-## 4 — Autoscaling e observabilidade sob carga
+## 4 — Autoscaling and observability under load
 
 ```mermaid
 flowchart LR
-    K6["k6\n(ondas de carga,\nde uma EC2 dentro da VPC)"] -->|tráfego real| API["Deployment api"]
+    K6["k6\n(load waves,\nfrom an EC2 inside the VPC)"] -->|real traffic| API["Deployment api"]
 
-    MS["metrics-server"] -->|"CPU dos pods"| HPA["HPA\nmin 2 / max 6, 70% CPU"]
+    MS["metrics-server"] -->|"pod CPU"| HPA["HPA\nmin 2 / max 6, 70% CPU"]
     HPA -->|scale out/in| API
 
-    API -->|"/metrics"| Prom["Prometheus\n(ServiceMonitor dedicado)"]
+    API -->|"/metrics"| Prom["Prometheus\n(dedicated ServiceMonitor)"]
     API -->|logs| Promtail["promtail\n(DaemonSet)"]
     Promtail --> Loki["Loki\nsingle-binary + PVC"]
 
-    Prom --> Grafana["Grafana\ndashboard 'dia do jogo'"]
-    Loki -->|"datasource, aba Explore"| Grafana
-    CW["CloudWatch\n(hit ratio CDN, erros ALB)"] -->|IRSA| Grafana
+    Prom --> Grafana["Grafana\n'game day' dashboard"]
+    Loki -->|"datasource, Explore tab"| Grafana
+    CW["CloudWatch\n(CDN hit ratio, ALB errors)"] -->|IRSA| Grafana
 ```
 
-**Por quê:**
-- **HPA por CPU, não Cluster Autoscaler/Karpenter** ([ADR 012](adr/012-hpa-cpu-autoscaling.md)) — o gargalo real medido em carga (k6 breakpoint) era CPU de réplica única da API, não capacidade de nó; escalar pods resolve o problema medido, sem a complexidade adicional de escalar nós dinamicamente.
-- **k6 rodando de uma EC2 dentro da própria VPC**, não do laptop do operador — ruído de rede do caminho cliente→AWS mascarava o teto de capacidade real (achado documentado em [`load/README.md`](../load/README.md)).
-- **Loki em modo single-binary + filesystem**, não distributed + S3 ([ADR 011](adr/011-observability-stack.md)) — sem ganho num ambiente que é destruído a cada sessão; a complexidade operacional extra não se paga.
-- **Grafana lê CloudWatch via IRSA própria** — hit ratio do CDN e erros 5xx da ALB só existem no CloudWatch, não no Prometheus (métricas de infraestrutura AWS gerenciada, não da aplicação).
+**Why:**
+- **CPU-based HPA, not Cluster Autoscaler/Karpenter** ([ADR 012](adr/012-hpa-cpu-autoscaling.md)) — the real bottleneck measured under load (k6 breakpoint) was a single API replica's CPU, not node capacity; scaling pods solves the measured problem without the added complexity of dynamically scaling nodes too.
+- **k6 running from an EC2 inside the VPC itself**, not the operator's laptop — network noise on the client→AWS path was masking the real capacity ceiling (finding documented in [`load/README.md`](../load/README.md)).
+- **Loki in single-binary + filesystem mode**, not distributed + S3 ([ADR 011](adr/011-observability-stack.md)) — no gain in an environment that gets destroyed every session; the extra operational complexity wouldn't pay for itself.
+- **Grafana reads CloudWatch through its own IRSA role** — CDN hit ratio and ALB 5xx errors only exist in CloudWatch, not in Prometheus (managed AWS infrastructure metrics, not application metrics).
 
-## Onde cada coisa vive no repositório
+## Where each piece lives in the repository
 
-| Diagrama | Terraform | GitOps |
+| Diagram | Terraform | GitOps |
 | --- | --- | --- |
-| 1 — Infra/rede | `terraform/modules/{vpc,eks}/`, `terraform/envs/lab/{cloudfront,dns-data,s3}.tf` | `gitops/*/ingress.yaml` |
-| 2 — GitOps/plataforma | `terraform/envs/lab/argocd.tf` | `gitops/platform/*/values.yaml` |
-| 3 — Fluxo de vídeo | `terraform/envs/lab/iam-app.tf` | `app/api/`, `app/transcoder/`, `gitops/app/` |
-| 4 — Autoscaling/observabilidade | `terraform/envs/lab/iam-platform.tf` | `gitops/platform/{kube-prometheus-stack,loki,promtail,metrics-server}/`, `gitops/app/hpa.yaml` |
+| 1 — Infra/network | `terraform/modules/{vpc,eks}/`, `terraform/envs/lab/{cloudfront,dns-data,s3}.tf` | `gitops/*/ingress.yaml` |
+| 2 — GitOps/platform | `terraform/envs/lab/argocd.tf` | `gitops/platform/*/values.yaml` |
+| 3 — Video flow | `terraform/envs/lab/iam-app.tf` | `app/api/`, `app/transcoder/`, `gitops/app/` |
+| 4 — Autoscaling/observability | `terraform/envs/lab/iam-platform.tf` | `gitops/platform/{kube-prometheus-stack,loki,promtail,metrics-server}/`, `gitops/app/hpa.yaml` |
 
-## Divergências conhecidas do texto vs. o desenho
+## Known divergences between the text and the diagram
 
-- `cert-manager` está instalado (com `ClusterIssuer` via DNS-01/Route53) mas **não emite nenhum certificado real hoje** — TLS em produção usa o ACM wildcard do bootstrap. O `ClusterIssuer` existe como capacidade já pronta, não como caminho ativo (nota em `terraform/envs/lab/iam-platform.tf`).
+- `cert-manager` is installed (with a `ClusterIssuer` via DNS-01/Route53) but **doesn't issue any real certificate today** — production TLS uses the bootstrap's ACM wildcard. The `ClusterIssuer` exists as a capability that's ready to go, not as an active path (noted in `terraform/envs/lab/iam-platform.tf`).
