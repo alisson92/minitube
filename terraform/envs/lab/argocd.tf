@@ -53,8 +53,8 @@ resource "kubernetes_namespace_v1" "argocd" {
   # No implicit ordering with module.eks -- without this, a `destroy` once
   # tore down the operator's EKS access entry before this namespace (and
   # everything depending on it), revoking kubectl mid-destroy. Forces both
-  # directions: access ready (module.eks's own time_sleep) before k8s
-  # resources are created, torn down only after.
+  # directions: access ready (module.eks's own null_resource.wait_for_operator_access)
+  # before k8s resources are created, torn down only after.
   depends_on = [module.eks]
 }
 
@@ -226,6 +226,48 @@ resource "helm_release" "argocd_project" {
   })]
 }
 
+# Destroying helm_release.argocd_apps prunes the metrics-server Application,
+# but the metrics-server APIService itself (v1beta1.metrics.k8s.io,
+# cluster-scoped, registered by the metrics-server chart, not by ArgoCD or
+# Terraform) survives pointing at a backend that no longer exists. While
+# that stale APIService exists, cluster-wide API discovery fails
+# (DiscoveryFailed), which blocks the namespace-finalization controller for
+# every namespace, not just metrics-server's -- stalling the argocd/platform
+# namespace destroys below for 5min+ until `context deadline exceeded`.
+# Previously required a manual `kubectl delete apiservice` + re-running
+# `destroy` (see docs/runbooks/run-the-project.md before this fix). Uses the
+# AWS CLI/kubectl directly, not the kubernetes provider, because destroy-time
+# provisioners may only reference the resource's own `self` attributes --
+# cluster_name/aws_region are threaded through `triggers` for that reason.
+# See docs/adr/015-destroy-stale-metrics-apiservice-automation.md.
+resource "null_resource" "cleanup_stale_metrics_apiservice" {
+  # Must run after argocd_apps is destroyed (so the Application is already
+  # pruned and the APIService is actually stale) and before the namespaces
+  # are destroyed (so their finalizers don't hang). See helm_release.argocd_apps's
+  # own depends_on below for the other half of this ordering.
+  depends_on = [kubernetes_namespace_v1.argocd, kubernetes_namespace_v1.platform]
+
+  triggers = {
+    cluster_name = module.eks.cluster_name
+    aws_region   = var.aws_region
+  }
+
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      kubeconfig_file=$(mktemp)
+      trap 'rm -f "$kubeconfig_file"' EXIT
+      aws eks update-kubeconfig \
+        --name "${self.triggers.cluster_name}" \
+        --region "${self.triggers.aws_region}" \
+        --kubeconfig "$kubeconfig_file" >/dev/null
+      kubectl --kubeconfig "$kubeconfig_file" delete apiservice v1beta1.metrics.k8s.io --ignore-not-found
+    EOT
+  }
+}
+
 # Declares the root "app of apps" (the Applications themselves) via Helm
 # values instead of a manually-applied Application manifest — the bootstrap
 # itself stays declarative, closing the gap left open by ADR 006 item 7.
@@ -263,6 +305,9 @@ resource "helm_release" "argocd_apps" {
     aws_iam_role_policy.external_dns,
     aws_iam_role_policy_attachment.ebs_csi_driver,
     aws_iam_role_policy.grafana,
+    # Forces this release to be destroyed *before* the cleanup below runs --
+    # see null_resource.cleanup_stale_metrics_apiservice's own comment.
+    null_resource.cleanup_stale_metrics_apiservice,
   ]
 
   values = [yamlencode({

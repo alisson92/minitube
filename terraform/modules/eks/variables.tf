@@ -52,3 +52,8 @@ variable "operator_role_arn" {
   description = "IAM role ARN granted cluster-admin via an explicit EKS access entry, regardless of who calls CreateCluster (see the access_config comment on the cluster resource in main.tf)"
   type        = string
 }
+
+variable "aws_region" {
+  description = "AWS region the cluster lives in, needed by null_resource.wait_for_operator_access's local-exec (aws eks update-kubeconfig requires an explicit --region, unlike the aws/kubernetes/helm providers which already carry it)"
+  type        = string
+}
