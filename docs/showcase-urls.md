@@ -10,7 +10,7 @@
 
 | UI | URL | What it shows | Username | Password |
 | --- | --- | --- | --- | --- |
-| App (product) | `https://app.minitube.projetodevops.com.br` (`terraform output -raw app_url`) | The product itself: upload, transcoding, and video playback via HLS, served by CloudFront | — | — |
+| App (product) | `https://app.minitube.projetodevops.com.br/?v=<video_id>` (`terraform output -raw app_url`, `video_id` from `POST /api/videos`) | The watch page (`site/player/`, [ADR 019](adr/019-app-watch-page.md)): real HLS playback via CloudFront, upload → transcoding → playback end to end | — | — |
 | Argo CD | `https://argocd.minitube.projetodevops.com.br` | GitOps end to end: every `Application` `Synced`/`Healthy`, reconciled from Git | `admin` | `cd terraform/envs/lab && terraform output -raw argocd_admin_password` — see [`access-argocd-ui.md`](runbooks/access-argocd-ui.md) |
 | Grafana | `https://grafana.minitube.projetodevops.com.br` | "Game day" dashboard (latency, saturation/HPA, errors), Explore for Loki | `admin` | `cd terraform/envs/lab && terraform output -raw grafana_admin_password` |
 
@@ -36,7 +36,7 @@ No dedicated Ingress — reachable only from inside Grafana or via a manual `por
 ## Evidence checklist to capture
 
 **Client side** (`app.<domain>`):
-- [ ] Player streaming a real video, uploaded end to end (`POST /api/videos` → transcoding → HLS)
+- [ ] The watch page (`https://app.<domain>/?v=<video_id>`) streaming a real video, uploaded end to end (`POST /api/videos` → transcoding → HLS)
 - [ ] Browser's Network tab showing `.ts`/`.m3u8` segments coming from CloudFront, with the `X-Cache` header confirming a cache hit (same check as `scripts/validate-cloudfront-dns-tls.sh`)
 
 **Server side** (the engineering "under the hood"):

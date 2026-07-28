@@ -32,6 +32,19 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "video" {
   }
 }
 
+# The watch page (site/player/) -- unlike the persistent architecture
+# showcase site (docs/adr/017), this bucket is recreated every session, so
+# the content is deployed as a normal Terraform-managed object instead of a
+# separate manual sync script: `terraform apply` alone is enough. See
+# docs/adr/019.
+resource "aws_s3_object" "player_page" {
+  bucket       = aws_s3_bucket.video.id
+  key          = "index.html"
+  source       = "${path.module}/../../../site/player/index.html"
+  etag         = filemd5("${path.module}/../../../site/player/index.html")
+  content_type = "text/html"
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "video" {
   bucket = aws_s3_bucket.video.id
 

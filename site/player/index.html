@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MiniTube</title>
+<meta name="description" content="MiniTube watch page -- plays a real HLS stream served by CloudFront, from a video uploaded and transcoded through the MiniTube API." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%230b0f14'/%3E%3Ccircle cx='32' cy='32' r='16' fill='%23f2a93c'/%3E%3C/svg%3E" />
+<style>
+  /* Same dark "night match under floodlights" theme as site/architecture/index.html -- kept
+     consistent across the project's two public pages, see docs/adr/017. */
+  :root{
+    --bg: #0b0f14;
+    --surface: #121a24;
+    --surface-2: #19232f;
+    --ink: #f2efe9;
+    --muted: #8a94a3;
+    --accent: #f2a93c;
+    --accent-ink: #241705;
+    --line: rgba(242,239,233,0.14);
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  *, *::before, *::after{ box-sizing:border-box; }
+  html{ color-scheme: dark; }
+  body{
+    margin:0; min-height:100vh;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(242,169,60,0.10), transparent 60%),
+      var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .topbar{
+    padding:0.85rem 1.5rem;
+    border-bottom:1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between; gap:1rem;
+  }
+  .brand{
+    font-family:var(--mono); font-weight:700; letter-spacing:0.02em;
+    font-size:0.85rem; color:var(--ink); text-decoration:none;
+  }
+  .brand b{ color:var(--accent); }
+  .onair{
+    display:inline-flex; align-items:center; gap:0.45rem;
+    font-family:var(--mono); font-size:0.72rem; letter-spacing:0.08em;
+    color:var(--muted); text-transform:uppercase;
+  }
+  .onair .dot{
+    width:7px; height:7px; border-radius:50%; background:var(--accent);
+    box-shadow:0 0 0 0 rgba(242,169,60,0.6);
+    animation:pulse 2.2s ease-out infinite;
+  }
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 rgba(242,169,60,0.55); }
+    100%{ box-shadow:0 0 0 8px rgba(242,169,60,0); }
+  }
+
+  main{ max-width:960px; margin:0 auto; padding:2rem 1.5rem 3rem; }
+
+  .player-shell{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:12px;
+    overflow:hidden;
+  }
+  video{
+    display:block; width:100%; aspect-ratio:16/9; background:#000;
+  }
+  .meta{
+    padding:0.9rem 1.1rem;
+    display:flex; align-items:center; justify-content:space-between; gap:1rem;
+    flex-wrap:wrap;
+  }
+  .video-id{
+    font-family:var(--mono); font-size:0.8rem; color:var(--muted);
+  }
+  .video-id b{ color:var(--ink); font-weight:600; }
+  .status{
+    font-family:var(--mono); font-size:0.75rem; color:var(--muted);
+  }
+
+  .empty{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:3rem 1.5rem;
+    text-align:center;
+  }
+  .empty h1{ margin:0 0 0.5rem; font-size:1.1rem; }
+  .empty p{ margin:0; color:var(--muted); font-size:0.9rem; }
+  .empty code{
+    background:var(--surface-2); border:1px solid var(--line); border-radius:4px;
+    padding:0.1rem 0.4rem; font-family:var(--mono); font-size:0.85em;
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="brand" href="/"><b>Mini</b>Tube</a>
+    <span class="onair"><span class="dot"></span>live from CloudFront</span>
+  </div>
+
+  <main>
+    <div id="empty-state" class="empty" hidden>
+      <h1>No video selected</h1>
+      <p>Open this page with <code>?v=&lt;video_id&gt;</code> — the id returned by <code>POST /api/videos</code>.</p>
+    </div>
+
+    <div id="player-state" class="player-shell" hidden>
+      <video id="video" controls playsinline></video>
+      <div class="meta">
+        <span class="video-id">video_id: <b id="video-id-label"></b></span>
+        <span class="status" id="status-label"></span>
+      </div>
+    </div>
+  </main>
+
+  <!-- Pinned version, not @latest -- same "pinned versions" convention used
+       for terraform/tflint/trivy/etc. in .github/workflows/ci.yml. -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+  <script>
+    (function () {
+      const videoId = new URLSearchParams(window.location.search).get("v");
+      const emptyState = document.getElementById("empty-state");
+      const playerState = document.getElementById("player-state");
+      const statusLabel = document.getElementById("status-label");
+
+      if (!videoId) {
+        emptyState.hidden = false;
+        return;
+      }
+
+      // textContent, never innerHTML -- videoId comes straight from the
+      // query string (user input), no reason to parse it as markup.
+      document.getElementById("video-id-label").textContent = videoId;
+      playerState.hidden = false;
+
+      const playlistUrl = "/hls/" + encodeURIComponent(videoId) + "/playlist.m3u8";
+      const video = document.getElementById("video");
+
+      function setStatus(text) {
+        statusLabel.textContent = text;
+      }
+
+      if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(playlistUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => setStatus("ready (hls.js)"));
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) setStatus("error: " + data.type);
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = playlistUrl;
+        setStatus("ready (native HLS)");
+      } else {
+        setStatus("this browser cannot play HLS");
+      }
+    })();
+  </script>
+</body>
+</html>
