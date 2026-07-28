@@ -100,6 +100,11 @@ Creates from scratch: VPC, EKS (cluster + spot node group), video S3 bucket, IRS
 
 ⚠️ **If the apply fails on `helm_release.argocd` with a connection error right after creating a new cluster** (`connection refused`/`context deadline exceeded`): a known symptom of the control plane not yet being ready for the `kubernetes`/`helm` providers in the same apply where it was created — the most common scenario here, not the exception, since the cluster is recreated every session. Documented fallback in the "Apply ArgoCD and run the test" section of [`validate-argocd-gitops.md`](validate/validate-argocd-gitops.md): `terraform apply -target=module.eks` first, then the full apply again.
 
+⚠️ **If `make validate-all`/`validate-argocd.sh` hangs past its documented timeout waiting for the `platform` Application to reach `Synced`:** on a fresh cluster, `platform`'s `PrometheusRule` (`gitops/platform/kube-prometheus-stack/slo-rules.yaml`) can race the `kube-prometheus-stack` Application's operator webhook — ArgoCD applies it before the operator pod has ready endpoints (`no endpoints available for service "kube-prometheus-stack-operator-webhook"`), and without a `retry` policy this failed permanently instead of eventually succeeding once the pod came up. Fixed by giving `platform` the same explicit `retry`/`backoff` already used by `cert-manager`/`kube-prometheus-stack` for the identical class of sibling-Application race (`terraform/envs/lab/argocd.tf`). If it still happens (confirm first with `kubectl -n argocd describe application platform` — a `SyncError` mentioning the operator webhook, not a `kubectl`/network hang), force a fresh attempt without any manual `kubectl apply`:
+```bash
+kubectl -n argocd annotate application platform argocd.argoproj.io/refresh=hard --overwrite
+```
+
 ### 2.3 — Build + push the images (only if the `app/` code changed)
 
 If `app/api/` and `app/transcoder/` haven't changed since the last session, **skip this step** — the images are already published in ECR (persistent) and `gitops/app/deployment.yaml` already references the right tag.

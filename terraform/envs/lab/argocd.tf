@@ -375,12 +375,30 @@ resource "helm_release" "argocd_apps" {
           server    = "https://kubernetes.default.svc"
           namespace = local.platform_namespace
         }
+        # retry/backoff covers this Application's PrometheusRule
+        # (kube-prometheus-stack/slo-rules.yaml) racing the
+        # kube-prometheus-stack Application's operator webhook below --
+        # same "no ordering guarantee between sibling Applications" reasoning
+        # as that Application's own retry policy (PVCs vs ebs-csi-driver) and
+        # cert-manager's (ClusterIssuer vs CRDs). Confirmed live: on a fresh
+        # cluster, the operator webhook Service had no ready endpoints yet
+        # when this Application's first sync attempted to apply the
+        # PrometheusRule, exhausting ArgoCD's default retries before the pod
+        # came up.
         syncPolicy = {
           automated = {
             prune    = true
             selfHeal = true
           }
           syncOptions = ["CreateNamespace=true"]
+          retry = {
+            limit = 5
+            backoff = {
+              duration    = "10s"
+              factor      = 2
+              maxDuration = "3m"
+            }
+          }
         }
       }
 
