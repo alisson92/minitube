@@ -26,7 +26,10 @@ resource "aws_s3_bucket_policy" "video_cloudfront_read" {
       Effect    = "Allow"
       Principal = { Service = "cloudfront.amazonaws.com" }
       Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.video.arn}/hls/*"
+      Resource = [
+        "${aws_s3_bucket.video.arn}/hls/*",
+        "${aws_s3_bucket.video.arn}/index.html", # the watch page, see docs/adr/019
+      ]
       Condition = {
         StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.app.arn }
       }
@@ -110,9 +113,10 @@ resource "aws_route53_record" "alb_origin" {
 }
 
 resource "aws_cloudfront_distribution" "app" {
-  enabled     = true
-  price_class = "PriceClass_100" # US/Europe only -- a lab doesn't need global edge coverage
-  aliases     = ["app.${var.domain_name}"]
+  enabled             = true
+  price_class         = "PriceClass_100" # US/Europe only -- a lab doesn't need global edge coverage
+  aliases             = ["app.${var.domain_name}"]
+  default_root_object = "index.html" # the watch page (site/player/), see docs/adr/019
 
   origin {
     origin_id                = "s3-video"
