@@ -137,6 +137,7 @@ make validate-all
 
 ### 2.5 — Use the environment
 
+- **Watch page:** `terraform output -raw app_url`, then `<app_url>/?v=<video_id>` (`video_id` from the `POST /api/videos` response) — see [`showcase-urls.md`](../showcase-urls.md).
 - **ArgoCD:** [`access-argocd-ui.md`](access-argocd-ui.md) — real URL + password via `terraform output`.
 - **Grafana:** `terraform output -raw grafana_admin_password`, at `grafana.<domain>`.
 - **Load tests (k6):** [`../../load/README.md`](../../load/README.md) for an overview of the 4 scenarios, individual runbooks in `docs/runbooks/load/`.

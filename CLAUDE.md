@@ -65,7 +65,8 @@ minitube/
 │   ├── api/                # FastAPI: upload + triggers the transcoding Job
 │   └── transcoder/         # FFmpeg → HLS, runs as a Kubernetes Job
 ├── site/
-│   └── architecture/       # static architecture showcase page, served via terraform/bootstrap/ (ADR 017) — deployed via terraform/bootstrap/scripts/deploy-architecture-site.sh
+│   ├── architecture/       # static architecture showcase page, served via terraform/bootstrap/ (ADR 017) — deployed via terraform/bootstrap/scripts/deploy-architecture-site.sh
+│   └── player/             # watch page (app.<domain>/?v=<video_id>), served via terraform/envs/lab/ (ADR 019) — deployed automatically by terraform apply
 ├── load/                   # k6 scenarios ("crowd waves")
 ├── chaos/                  # simple chaos experiments (phase 6)
 └── scripts/                # check-markdown-links.py — used by CI and manually during reorganizations
