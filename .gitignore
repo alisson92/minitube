@@ -49,6 +49,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
 
 # SSH keys (deploy keys, etc.) — generated outside the repo by design
 # (see docs/runbooks/validate/validate-argocd-gitops.md); never committed here.
