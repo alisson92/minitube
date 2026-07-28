@@ -11,35 +11,21 @@ locals {
   app_service_account_names = ["api", "transcoder"]
 }
 
-resource "aws_iam_role" "app" {
-  # Must start with "${var.project}-app-" to fall inside the prefix the
-  # operator was granted (ManageAppIrsaRoles statement).
-  name = "${var.project}-app-irsa-role"
+# Must start with "${var.project}-app-" to fall inside the prefix the
+# operator was granted (ManageAppIrsaRoles statement).
+module "app_irsa" {
+  source = "../../modules/irsa-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = module.eks.oidc_provider_arn }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = {
-          "${local.oidc_provider_url}:aud" = "sts.amazonaws.com"
-        }
-        StringLike = {
-          "${local.oidc_provider_url}:sub" = [
-            for sa in local.app_service_account_names :
-            "system:serviceaccount:${local.app_namespace}:${sa}"
-          ]
-        }
-      }
-    }]
-  })
+  role_name             = "${var.project}-app-irsa-role"
+  oidc_provider_arn     = module.eks.oidc_provider_arn
+  oidc_provider_url     = local.oidc_provider_url
+  namespace             = local.app_namespace
+  service_account_names = local.app_service_account_names
 }
 
 resource "aws_iam_role_policy" "app_video_bucket" {
   name = "${var.project}-app-video-bucket-access"
-  role = aws_iam_role.app.id
+  role = module.app_irsa.role_id
 
   policy = jsonencode({
     Version = "2012-10-17"

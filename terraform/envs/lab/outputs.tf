@@ -60,7 +60,7 @@ output "s3_video_bucket_name" {
 
 output "app_irsa_role_arn" {
   description = "ARN of the shared IRSA role for the app's API and transcoder service accounts"
-  value       = aws_iam_role.app.arn
+  value       = module.app_irsa.role_arn
 }
 
 output "argocd_namespace" {
@@ -70,27 +70,27 @@ output "argocd_namespace" {
 
 output "aws_load_balancer_controller_role_arn" {
   description = "ARN of the IRSA role for the aws-load-balancer-controller add-on"
-  value       = aws_iam_role.aws_load_balancer_controller.arn
+  value       = module.aws_load_balancer_controller_irsa.role_arn
 }
 
 output "external_dns_role_arn" {
   description = "ARN of the IRSA role for the external-dns add-on"
-  value       = aws_iam_role.external_dns.arn
+  value       = module.external_dns_irsa.role_arn
 }
 
 output "cert_manager_role_arn" {
   description = "ARN of the IRSA role for the cert-manager add-on"
-  value       = aws_iam_role.cert_manager.arn
+  value       = module.cert_manager_irsa.role_arn
 }
 
 output "ebs_csi_driver_role_arn" {
   description = "ARN of the IRSA role for the aws-ebs-csi-driver add-on"
-  value       = aws_iam_role.ebs_csi_driver.arn
+  value       = module.ebs_csi_driver_irsa.role_arn
 }
 
 output "grafana_role_arn" {
   description = "ARN of the IRSA role for Grafana's CloudWatch datasource"
-  value       = aws_iam_role.grafana.arn
+  value       = module.grafana_irsa.role_arn
 }
 
 output "grafana_admin_password" {
