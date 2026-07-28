@@ -24,7 +24,7 @@ In this session the operator proposed going further: hosting this page **persist
 
 ### 3. Content outside Terraform
 
-The HTML/CSS/JS (`site/architecture/index.html`) is a static file versioned in the repository, **not** an `aws_s3_object` managed by Terraform — synced to the bucket by `terraform/bootstrap/scripts/deploy-architecture-site.sh` (`aws s3 sync` + CloudFront invalidation), run manually whenever the content changes. Keeps `bootstrap/`'s `apply` (an infrastructure resource, touched rarely) decoupled from content/design tweaks (expected more frequently during the outreach phase).
+The HTML/CSS/JS (`site/architecture/index.html`) is a static file versioned in the repository, **not** an `aws_s3_object` managed by Terraform — synced to the bucket by `terraform/bootstrap/scripts/deploy-architecture-site.sh` (`aws s3 sync` + CloudFront invalidation), run manually whenever the content changes. Keeps `bootstrap/`'s `apply` (an infrastructure resource, touched rarely) decoupled from content/design tweaks (expected more frequently during the outreach phase). Step-by-step usage in [`docs/runbooks/deploy-architecture-site.md`](../runbooks/deploy-architecture-site.md).
 
 ### 4. Self-contained page, no external CDN dependency
 
