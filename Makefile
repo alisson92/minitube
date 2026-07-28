@@ -12,7 +12,8 @@ IAM := terraform/bootstrap-iam/scripts
 
 .PHONY: help validate-all \
 	validate-network validate-eks validate-transcoding validate-argocd \
-	validate-cloudfront-dns-tls validate-observability validate-budget
+	validate-cloudfront-dns-tls validate-observability validate-budget \
+	upload-video
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sort | \
@@ -42,6 +43,9 @@ validate-observability: ## PVCs, Prometheus targets, Grafana, real Loki logs (te
 
 validate-budget: ## Persistent account budget alert (terraform/bootstrap-iam, not envs/lab)
 	$(IAM)/validate-budget.sh
+
+upload-video: ## Upload a real video and print its watch page URL -- usage: make upload-video FILE=/path/to/video.mp4
+	$(LAB)/upload-video.sh $(FILE)
 
 validate-all: ## Run every envs/lab check in dependency order; keeps going on failure, prints a summary
 	@names=(network eks transcoding argocd cloudfront-dns-tls observability)
