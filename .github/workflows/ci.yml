@@ -45,6 +45,7 @@ jobs:
           - terraform/envs/lab
           - terraform/modules/vpc
           - terraform/modules/eks
+          - terraform/modules/irsa-role
     steps:
       - uses: actions/checkout@v4
 

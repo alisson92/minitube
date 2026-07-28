@@ -1,8 +1,9 @@
 # IRSA roles for the platform add-ons. Live here, not in bootstrap-iam, for
-# the same reason as aws_iam_role.app (iam-app.tf): trust policy bound to
+# the same reason as module.app_irsa (iam-app.tf): trust policy bound to
 # this cluster's OIDC provider, recreated every session. Requires the
 # "ManagePlatformIrsaRoles" grant in terraform/bootstrap-iam/main.tf. See
-# docs/adr/008-cloudfront-dns-tls.md.
+# docs/adr/008-cloudfront-dns-tls.md. Trust-policy shape shared via
+# ../../modules/irsa-role.
 locals {
   platform_service_accounts = {
     aws_load_balancer_controller = "aws-load-balancer-controller"
@@ -19,21 +20,14 @@ locals {
   }
 }
 
-resource "aws_iam_role" "aws_load_balancer_controller" {
-  name = "${var.project}-platform-lbc-irsa-role"
+module "aws_load_balancer_controller_irsa" {
+  source = "../../modules/irsa-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = module.eks.oidc_provider_arn }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
-        StringLike   = { "${local.oidc_provider_url}:sub" = "system:serviceaccount:${local.platform_namespace}:${local.platform_service_accounts.aws_load_balancer_controller}" }
-      }
-    }]
-  })
+  role_name             = "${var.project}-platform-lbc-irsa-role"
+  oidc_provider_arn     = module.eks.oidc_provider_arn
+  oidc_provider_url     = local.oidc_provider_url
+  namespace             = local.platform_namespace
+  service_account_names = [local.platform_service_accounts.aws_load_balancer_controller]
 }
 
 # Vendored from the upstream install guide
@@ -44,30 +38,23 @@ resource "aws_iam_role" "aws_load_balancer_controller" {
 # var.aws_load_balancer_controller_chart_version to a new minor version.
 resource "aws_iam_role_policy" "aws_load_balancer_controller" {
   name   = "${var.project}-platform-lbc-policy"
-  role   = aws_iam_role.aws_load_balancer_controller.id
+  role   = module.aws_load_balancer_controller_irsa.role_id
   policy = file("${path.module}/policies/aws-load-balancer-controller-iam-policy.json")
 }
 
-resource "aws_iam_role" "external_dns" {
-  name = "${var.project}-platform-external-dns-irsa-role"
+module "external_dns_irsa" {
+  source = "../../modules/irsa-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = module.eks.oidc_provider_arn }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
-        StringLike   = { "${local.oidc_provider_url}:sub" = "system:serviceaccount:${local.platform_namespace}:${local.platform_service_accounts.external_dns}" }
-      }
-    }]
-  })
+  role_name             = "${var.project}-platform-external-dns-irsa-role"
+  oidc_provider_arn     = module.eks.oidc_provider_arn
+  oidc_provider_url     = local.oidc_provider_url
+  namespace             = local.platform_namespace
+  service_account_names = [local.platform_service_accounts.external_dns]
 }
 
 resource "aws_iam_role_policy" "external_dns" {
   name = "${var.project}-platform-external-dns-policy"
-  role = aws_iam_role.external_dns.id
+  role = module.external_dns_irsa.role_id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -86,21 +73,14 @@ resource "aws_iam_role_policy" "external_dns" {
   })
 }
 
-resource "aws_iam_role" "cert_manager" {
-  name = "${var.project}-platform-cert-manager-irsa-role"
+module "cert_manager_irsa" {
+  source = "../../modules/irsa-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = module.eks.oidc_provider_arn }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
-        StringLike   = { "${local.oidc_provider_url}:sub" = "system:serviceaccount:${local.platform_namespace}:${local.platform_service_accounts.cert_manager}" }
-      }
-    }]
-  })
+  role_name             = "${var.project}-platform-cert-manager-irsa-role"
+  oidc_provider_arn     = module.eks.oidc_provider_arn
+  oidc_provider_url     = local.oidc_provider_url
+  namespace             = local.platform_namespace
+  service_account_names = [local.platform_service_accounts.cert_manager]
 }
 
 # Scoped for the DNS-01 challenge against Route53 only (docs:
@@ -110,7 +90,7 @@ resource "aws_iam_role" "cert_manager" {
 # functional so the ClusterIssuer itself reaches Ready.
 resource "aws_iam_role_policy" "cert_manager" {
   name = "${var.project}-platform-cert-manager-policy"
-  role = aws_iam_role.cert_manager.id
+  role = module.cert_manager_irsa.role_id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -134,21 +114,14 @@ resource "aws_iam_role_policy" "cert_manager" {
   })
 }
 
-resource "aws_iam_role" "ebs_csi_driver" {
-  name = "${var.project}-platform-ebs-csi-irsa-role"
+module "ebs_csi_driver_irsa" {
+  source = "../../modules/irsa-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = module.eks.oidc_provider_arn }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
-        StringLike   = { "${local.oidc_provider_url}:sub" = "system:serviceaccount:${local.platform_namespace}:${local.platform_service_accounts.ebs_csi_driver}" }
-      }
-    }]
-  })
+  role_name             = "${var.project}-platform-ebs-csi-irsa-role"
+  oidc_provider_arn     = module.eks.oidc_provider_arn
+  oidc_provider_url     = local.oidc_provider_url
+  namespace             = local.platform_namespace
+  service_account_names = [local.platform_service_accounts.ebs_csi_driver]
 }
 
 # AWS-managed policy (the officially documented way to grant this driver),
@@ -156,25 +129,18 @@ resource "aws_iam_role" "ebs_csi_driver" {
 # "AttachEbsCsiManagedPolicy" grant in terraform/bootstrap-iam/main.tf, which
 # only permits attaching this exact managed policy ARN.
 resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
-  role       = aws_iam_role.ebs_csi_driver.name
+  role       = module.ebs_csi_driver_irsa.role_name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
 
-resource "aws_iam_role" "grafana" {
-  name = "${var.project}-platform-grafana-irsa-role"
+module "grafana_irsa" {
+  source = "../../modules/irsa-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = module.eks.oidc_provider_arn }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = { "${local.oidc_provider_url}:aud" = "sts.amazonaws.com" }
-        StringLike   = { "${local.oidc_provider_url}:sub" = "system:serviceaccount:${local.platform_namespace}:${local.platform_service_accounts.grafana}" }
-      }
-    }]
-  })
+  role_name             = "${var.project}-platform-grafana-irsa-role"
+  oidc_provider_arn     = module.eks.oidc_provider_arn
+  oidc_provider_url     = local.oidc_provider_url
+  namespace             = local.platform_namespace
+  service_account_names = [local.platform_service_accounts.grafana]
 }
 
 # Read-only access for the CloudWatch datasource -- CDN hit ratio and ALB
@@ -183,7 +149,7 @@ resource "aws_iam_role" "grafana" {
 # policy. These actions don't support resource-level scoping.
 resource "aws_iam_role_policy" "grafana" {
   name = "${var.project}-platform-grafana-policy"
-  role = aws_iam_role.grafana.id
+  role = module.grafana_irsa.role_id
 
   policy = jsonencode({
     Version = "2012-10-17"

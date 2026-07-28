@@ -407,7 +407,7 @@ resource "helm_release" "argocd_apps" {
               parameters = [
                 {
                   name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-                  value = aws_iam_role.aws_load_balancer_controller.arn
+                  value = module.aws_load_balancer_controller_irsa.role_arn
                 },
                 {
                   # Without this the controller falls back to VPC discovery
@@ -452,7 +452,7 @@ resource "helm_release" "argocd_apps" {
               parameters = [
                 {
                   name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-                  value = aws_iam_role.external_dns.arn
+                  value = module.external_dns_irsa.role_arn
                 },
               ]
             }
@@ -489,7 +489,7 @@ resource "helm_release" "argocd_apps" {
               parameters = [
                 {
                   name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-                  value = aws_iam_role.cert_manager.arn
+                  value = module.cert_manager_irsa.role_arn
                 },
               ]
             }
@@ -545,7 +545,7 @@ resource "helm_release" "argocd_apps" {
               parameters = [
                 {
                   name  = "controller.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-                  value = aws_iam_role.ebs_csi_driver.arn
+                  value = module.ebs_csi_driver_irsa.role_arn
                 },
               ]
             }
@@ -586,7 +586,7 @@ resource "helm_release" "argocd_apps" {
               parameters = [
                 {
                   name  = "grafana.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-                  value = aws_iam_role.grafana.arn
+                  value = module.grafana_irsa.role_arn
                 },
                 {
                   # Points the chart at kubernetes_secret_v1.grafana_admin
