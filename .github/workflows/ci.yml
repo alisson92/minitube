@@ -110,6 +110,27 @@ jobs:
       - name: gitleaks (full history)
         run: gitleaks git --config .gitleaks.toml --redact
 
+  test-api:
+    name: test (api unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: app/api
+        run: pip install -r requirements-test.txt
+
+      # Pure unit tests -- kubernetes/boto3 clients mocked in
+      # tests/conftest.py, no cluster or AWS credentials involved (same
+      # "no AWS credentials in CI" constraint as the rest of this workflow).
+      - name: pytest
+        working-directory: app/api
+        run: python -m pytest tests/ -v
+
   lint:
     name: lint (yaml, shell, python, markdown links)
     runs-on: ubuntu-latest
