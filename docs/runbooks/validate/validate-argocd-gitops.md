@@ -77,8 +77,8 @@ Since Phase 4, ArgoCD has its own Ingress/DNS/TLS — see [`docs/runbooks/access
   1. `argocd-server` and `argocd-repo-server` reach `Available`; `argocd-application-controller` has at least 1 `Ready` replica.
   2. The two root Applications (`app`, `platform`) reach `Synced` — `app` also needs `Healthy`; `platform` accepts an empty health status, since it syncs 0 resources at this phase (see `gitops/platform/README.md`).
   3. `Deployment/api` exists, carries the `argocd.argoproj.io/tracking-id` annotation (proof that ArgoCD created the resource, not a manual `kubectl apply` run separately), and the API responds at `/api/healthz` via port-forward.
-  4. **Central check — drift and selfHeal:** the script runs `kubectl scale deployment/api --replicas=2` (a deliberate manual divergence, never done via Git) and polls until ArgoCD reverts it on its own back to `replicas: 1` (what `gitops/app/deployment.yaml` declares), with a 120s timeout.
-- **Guaranteed cleanup:** `trap cleanup EXIT` kills the `port-forward` and, if the drift test was started but not confirmed reverted, forces the `scale --replicas=1` back before exiting — the cluster never stays diverged from Git because of the test itself.
+  4. **Central check — drift and selfHeal:** the script patches the value of `metadata.labels."app.kubernetes.io/part-of"` on `deployment/api` (a deliberate manual divergence, never done via Git) and polls until ArgoCD reverts it on its own back to `minitube` (what `gitops/app/deployment.yaml` declares), with a 120s timeout. Not `spec.replicas`: [ADR 012](../../adr/012-hpa-cpu-autoscaling.md)'s HPA owns that field at runtime, and `terraform/envs/lab/argocd.tf`'s `ignoreDifferences` deliberately tells ArgoCD to never touch it — a replica-count drift would never revert. A label already declared in Git, with no `ignoreDifferences` entry, still proves the same thing.
+- **Guaranteed cleanup:** `trap cleanup EXIT` kills the `port-forward` and, if the drift test was started but not confirmed reverted, forces the label back to `minitube` before exiting — the cluster never stays diverged from Git because of the test itself.
 
 ## Expected output
 
@@ -88,11 +88,11 @@ PASS: Application 'app' reaches Synced+Healthy (up to 180s)
 PASS: Application 'platform' reaches Synced (up to 180s; empty health accepted, 0 resources)
 PASS: deployment/api carries an ArgoCD tracking-id annotation (proves ArgoCD created it, not a manual kubectl apply)
 PASS: API is reachable and healthy via port-forward
-Baseline: deployment/api replicas=1 (gitops/app/deployment.yaml declares replicas: 1)
-Introducing manual drift: scaling deployment/api to 2 replicas (never via GitOps)...
-  [  5s] spec.replicas=2 status.readyReplicas=2
-  [ 10s] spec.replicas=1 status.readyReplicas=1
-PASS: ArgoCD selfHeal reverted the drift back to 1 replica in ~10s, with no manual intervention
+Baseline: deployment/api label 'app.kubernetes.io/part-of'=minitube (gitops/app/deployment.yaml declares 'minitube')
+Introducing manual drift: changing that label's value (never via GitOps)...
+  [  5s] label='app.kubernetes.io/part-of'=drift-test
+  [ 10s] label='app.kubernetes.io/part-of'=minitube
+PASS: ArgoCD selfHeal reverted the drift back to 'minitube' in ~10s, with no manual intervention
 === All checks passed: ArgoCD is installed, both root Applications are synced from Git, and selfHeal reconciles drift without any kubectl apply. ===
 ```
 
@@ -122,7 +122,7 @@ If the script is interrupted abnormally (`kill -9`) in the middle of the drift c
 
 ```bash
 aws eks update-kubeconfig --region us-east-1 --name minitube-lab --profile cloudlab --kubeconfig /tmp/minitube-kubeconfig
-kubectl --kubeconfig /tmp/minitube-kubeconfig -n minitube-app scale deployment/api --replicas=1
+kubectl --kubeconfig /tmp/minitube-kubeconfig -n minitube-app label deployment/api "app.kubernetes.io/part-of=minitube" --overwrite
 rm -f /tmp/minitube-kubeconfig
 ```
 

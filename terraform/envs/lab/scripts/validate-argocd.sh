@@ -36,7 +36,7 @@ cleanup() {
   # the Deployment diverged from what Git declares.
   if [[ -n "$kubeconfig" && -f "$kubeconfig" && "$drift_reverted" -eq 0 ]]; then
     echo "Cleaning up: reverting manual drift on deployment/api"
-    kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" scale deployment/api --replicas=1 >/dev/null 2>&1 || true
+    kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" label deployment/api "app.kubernetes.io/part-of=minitube" --overwrite >/dev/null 2>&1 || true
   fi
   if [[ -n "$kubeconfig" && -f "$kubeconfig" ]]; then
     rm -f "$kubeconfig"
@@ -129,13 +129,22 @@ echo "Starting port-forward to the api Service on localhost:${LOCAL_PORT}..."
 kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" port-forward svc/api "${LOCAL_PORT}:80" >/dev/null 2>&1 &
 api_pf_pid=$!
 sleep 3
-run_check "API is reachable and healthy via port-forward" curl -sf "http://127.0.0.1:${LOCAL_PORT}/healthz" || overall=1
+run_check "API is reachable and healthy via port-forward" curl -sf "http://127.0.0.1:${LOCAL_PORT}/api/healthz" || overall=1
 
-# (d) Central proof: manual drift must self-heal without any intervention
-baseline=$(kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" get deployment/api -o jsonpath='{.spec.replicas}')
-echo "Baseline: deployment/api replicas=$baseline (gitops/app/deployment.yaml declares replicas: 1)"
-echo "Introducing manual drift: scaling deployment/api to 2 replicas (never via GitOps)..."
-kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" scale deployment/api --replicas=2 >/dev/null
+# (d) Central proof: manual drift must self-heal without any intervention.
+# Uses metadata.labels."app.kubernetes.io/part-of" (declared "minitube" in
+# gitops/app/deployment.yaml), not spec.replicas -- ADR 012's HPA owns that
+# field at runtime, and argocd.tf's ignoreDifferences deliberately tells
+# ArgoCD to never touch it (otherwise selfHeal would fight the HPA on every
+# sync), so a replica-count drift can never revert anymore. A label already
+# declared in Git, with no ignoreDifferences entry, still proves the same
+# thing: selfHeal reverts an out-of-band change with no kubectl apply.
+DRIFT_LABEL_KEY="app.kubernetes.io/part-of"
+DRIFT_LABEL_GIT_VALUE="minitube"
+baseline=$(kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" get deployment/api -o jsonpath="{.metadata.labels.${DRIFT_LABEL_KEY//./\\.}}")
+echo "Baseline: deployment/api label '${DRIFT_LABEL_KEY}'=${baseline} (gitops/app/deployment.yaml declares '${DRIFT_LABEL_GIT_VALUE}')"
+echo "Introducing manual drift: changing that label's value (never via GitOps)..."
+kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" label deployment/api "${DRIFT_LABEL_KEY}=drift-test" --overwrite >/dev/null
 drift_reverted=0
 
 elapsed=0
@@ -146,16 +155,15 @@ until $reverted; do
   fi
   sleep 5
   elapsed=$((elapsed + 5))
-  spec_replicas=$(kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" get deployment/api -o jsonpath='{.spec.replicas}')
-  ready_replicas=$(kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" get deployment/api -o jsonpath='{.status.readyReplicas}')
-  echo "  [$(printf '%3d' "$elapsed")s] spec.replicas=$spec_replicas status.readyReplicas=$ready_replicas"
-  if [[ "$spec_replicas" == "1" && "$ready_replicas" == "1" ]]; then
+  current_value=$(kubectl --kubeconfig "$kubeconfig" -n "$APP_NAMESPACE" get deployment/api -o jsonpath="{.metadata.labels.${DRIFT_LABEL_KEY//./\\.}}")
+  echo "  [$(printf '%3d' "$elapsed")s] label='${DRIFT_LABEL_KEY}'=${current_value}"
+  if [[ "$current_value" == "$DRIFT_LABEL_GIT_VALUE" ]]; then
     reverted=true
   fi
 done
 
 if $reverted; then
-  echo "PASS: ArgoCD selfHeal reverted the drift back to 1 replica in ~${elapsed}s, with no manual intervention"
+  echo "PASS: ArgoCD selfHeal reverted the drift back to '${DRIFT_LABEL_GIT_VALUE}' in ~${elapsed}s, with no manual intervention"
   drift_reverted=1
 else
   echo "FAIL: manual drift was NOT reverted within ${DRIFT_TIMEOUT_SECONDS}s" >&2
