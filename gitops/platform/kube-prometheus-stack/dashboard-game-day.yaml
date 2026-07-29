@@ -141,6 +141,10 @@ data:
           "targets": [
             {
               "refId": "A",
+              "id": "a",
+              "queryMode": "Metrics",
+              "metricQueryType": 0,
+              "metricEditorMode": 0,
               "region": "us-east-1",
               "namespace": "AWS/ApplicationELB",
               "metricName": "HTTPCode_Target_5XX_Count",
@@ -150,6 +154,10 @@ data:
             },
             {
               "refId": "B",
+              "id": "b",
+              "queryMode": "Metrics",
+              "metricQueryType": 0,
+              "metricEditorMode": 0,
               "region": "us-east-1",
               "namespace": "AWS/ApplicationELB",
               "metricName": "HTTPCode_ELB_5XX_Count",
@@ -159,14 +167,26 @@ data:
             },
             {
               "refId": "C",
+              "id": "c",
+              "queryMode": "Metrics",
+              "metricQueryType": 0,
+              "metricEditorMode": 1,
               "region": "us-east-1",
-              "expression": "FILL(A, 0)",
+              "namespace": "",
+              "statistic": "Sum",
+              "expression": "FILL(a, 0)",
               "label": "target 5xx"
             },
             {
               "refId": "D",
+              "id": "d",
+              "queryMode": "Metrics",
+              "metricQueryType": 0,
+              "metricEditorMode": 1,
               "region": "us-east-1",
-              "expression": "FILL(B, 0)",
+              "namespace": "",
+              "statistic": "Sum",
+              "expression": "FILL(b, 0)",
               "label": "elb 5xx"
             }
           ]
