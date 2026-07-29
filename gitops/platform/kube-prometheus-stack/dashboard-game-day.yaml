@@ -9,6 +9,18 @@
 # ALB Errors (5xx) wraps each raw metric in FILL(x, 0): CloudWatch publishes
 # no datapoint at all for a zero-count Sum metric, which Grafana would
 # otherwise render as "No data" instead of a flat 0 line.
+#
+# distribution_id/load_balancer are "custom" variables hardcoded to the
+# current session's live IDs, not CloudWatch-discovered ("Dimension
+# Values" query variables never rendered any options -- root cause not
+# isolated, and the ALB/distribution ARNs from every past apply/destroy
+# cycle still linger in CloudWatch's dimension metadata regardless, which
+# would pollute a working dropdown with dead entries anyway). Update
+# these two values after every `terraform apply` that recreates
+# envs/lab -- `terraform output` for cloudfront_distribution_id / the ALB
+# ARN. Properly fixing this means injecting the live values via Terraform
+# at apply time instead of hand-editing Git; tracked as a follow-up, not
+# done here.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -30,29 +42,17 @@ data:
         "list": [
           {
             "name": "distribution_id",
-            "type": "query",
-            "datasource": "CloudWatch",
-            "query": {
-              "queryType": "Dimension Values",
-              "namespace": "AWS/CloudFront",
-              "metricName": "Requests",
-              "dimensionKey": "DistributionId",
-              "region": "us-east-1"
-            },
-            "refresh": 1
+            "type": "custom",
+            "query": "E1JM4WJCCWM561",
+            "current": { "text": "E1JM4WJCCWM561", "value": "E1JM4WJCCWM561" },
+            "options": [{ "text": "E1JM4WJCCWM561", "value": "E1JM4WJCCWM561", "selected": true }]
           },
           {
             "name": "load_balancer",
-            "type": "query",
-            "datasource": "CloudWatch",
-            "query": {
-              "queryType": "Dimension Values",
-              "namespace": "AWS/ApplicationELB",
-              "metricName": "RequestCount",
-              "dimensionKey": "LoadBalancer",
-              "region": "us-east-1"
-            },
-            "refresh": 1
+            "type": "custom",
+            "query": "app/minitube-app/7bdea8d22089ef65",
+            "current": { "text": "app/minitube-app/7bdea8d22089ef65", "value": "app/minitube-app/7bdea8d22089ef65" },
+            "options": [{ "text": "app/minitube-app/7bdea8d22089ef65", "value": "app/minitube-app/7bdea8d22089ef65", "selected": true }]
           }
         ]
       },
