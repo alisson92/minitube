@@ -68,6 +68,10 @@ data:
           "targets": [
             {
               "refId": "A",
+              "id": "a",
+              "queryMode": "Metrics",
+              "metricQueryType": 0,
+              "metricEditorMode": 0,
               "region": "us-east-1",
               "namespace": "AWS/CloudFront",
               "metricName": "CacheHitRate",
