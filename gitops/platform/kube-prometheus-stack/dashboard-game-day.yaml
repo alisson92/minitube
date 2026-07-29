@@ -39,7 +39,7 @@ data:
               "dimensionKey": "DistributionId",
               "region": "us-east-1"
             },
-            "refresh": 2
+            "refresh": 1
           },
           {
             "name": "load_balancer",
@@ -52,7 +52,7 @@ data:
               "dimensionKey": "LoadBalancer",
               "region": "us-east-1"
             },
-            "refresh": 2
+            "refresh": 1
           }
         ]
       },
