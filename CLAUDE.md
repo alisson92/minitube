@@ -119,4 +119,5 @@ Full detailed sequence (including the one-time account bootstrap) in [`docs/runb
 - **Next steps (optional, no formal phase attached):**
   1. Find the exact capacity ceiling beyond the already-confirmed `PEAK_RATE=800`/`maxReplicas: 6` (push further, or raise `maxReplicas`).
   2. KEDA as an alternative to CPU-based HPA.
-  3. Enable CloudFront's "Additional metrics" if the dashboard's real hit ratio becomes important.
+  3. Close the residual `HTTPCode_ELB_5XX` gap found in the 2026-07-29 `run-k6-waves.md` result: every `api` replica can still dip out of the ALB target group at the same instant under peak saturation (readiness probe transiently fails, even with the widened `timeoutSeconds`) — see that runbook's entry for the 3 candidate fixes, in rough order of effort.
+  4. Inject the game-day dashboard's `distribution_id`/`load_balancer` values from Terraform at apply time instead of the hardcoded `custom` variables in `gitops/platform/kube-prometheus-stack/dashboard-game-day.yaml` (needs a manual one-line edit today after every `envs/lab` recreate — see that file's header comment).
