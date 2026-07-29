@@ -171,6 +171,22 @@ resource "aws_cloudfront_distribution" "app" {
   }
 }
 
+# Feeds the Grafana "game day" dashboard's CDN Hit Ratio panel
+# (gitops/platform/kube-prometheus-stack/dashboard-game-day.yaml) --
+# CacheHitRate/OriginLatency aren't published to CloudWatch by default.
+# Cost: up to 8 metrics, $0.30/metric/month prorated by the hour
+# (negligible for a session-length environment). See
+# https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/viewing-cloudfront-metrics.html
+resource "aws_cloudfront_monitoring_subscription" "app" {
+  distribution_id = aws_cloudfront_distribution.app.id
+
+  monitoring_subscription {
+    realtime_metrics_subscription_config {
+      realtime_metrics_subscription_status = "Enabled"
+    }
+  }
+}
+
 # Created via Terraform, not external-dns: the CloudFront distribution is
 # itself a Terraform-managed resource, so its DNS record can be too. Only
 # argocd.<domain_name>, pointing at the dynamically-provisioned ALB, needs

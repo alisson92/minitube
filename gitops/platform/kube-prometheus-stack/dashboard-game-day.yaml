@@ -4,9 +4,11 @@
 # This ConfigMap (provisioned via the sidecar, grafana_dashboard label)
 # fixes that, surviving every future apply/destroy cycle.
 #
-# CDN hit ratio needs CloudFront "Additional metrics" enabled (extra cost,
-# not currently on) -- shows "No data" without it; already confirmed by
-# other means (X-Cache header) in scripts/validate-cloudfront-dns-tls.sh.
+# CDN hit ratio needs CloudFront "Additional metrics" enabled --
+# aws_cloudfront_monitoring_subscription.app, terraform/envs/lab/cloudfront.tf.
+# ALB Errors (5xx) wraps each raw metric in FILL(x, 0): CloudWatch publishes
+# no datapoint at all for a zero-count Sum metric, which Grafana would
+# otherwise render as "No data" instead of a flat 0 line.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -58,7 +60,7 @@ data:
         {
           "id": 1,
           "title": "CDN Hit Ratio (CloudFront)",
-          "description": "Requires 'Additional metrics' enabled on the distribution -- if empty, see the X-Cache header confirmed in scripts/validate-cloudfront-dns-tls.sh as alternative evidence.",
+          "description": "Requires CloudFront 'Additional metrics' (terraform/envs/lab/cloudfront.tf) -- if still empty, see the X-Cache header check in scripts/validate-cloudfront-dns-tls.sh.",
           "type": "timeseries",
           "datasource": "CloudWatch",
           "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
@@ -144,7 +146,7 @@ data:
               "metricName": "HTTPCode_Target_5XX_Count",
               "dimensions": { "LoadBalancer": "$load_balancer" },
               "statistic": "Sum",
-              "alias": "target 5xx"
+              "hide": true
             },
             {
               "refId": "B",
@@ -153,7 +155,19 @@ data:
               "metricName": "HTTPCode_ELB_5XX_Count",
               "dimensions": { "LoadBalancer": "$load_balancer" },
               "statistic": "Sum",
-              "alias": "elb 5xx"
+              "hide": true
+            },
+            {
+              "refId": "C",
+              "region": "us-east-1",
+              "expression": "FILL(A, 0)",
+              "label": "target 5xx"
+            },
+            {
+              "refId": "D",
+              "region": "us-east-1",
+              "expression": "FILL(B, 0)",
+              "label": "elb 5xx"
             }
           ]
         }
