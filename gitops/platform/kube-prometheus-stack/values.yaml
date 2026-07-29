@@ -86,13 +86,16 @@ grafana:
         # -- no static keys involved.
         authType: default
         defaultRegion: us-east-1
+  # 256Mi OOMKilled the container mid-run (load/run-baseline.sh, 2026-07-28):
+  # dashboard rendering + the sidecar watchers left no headroom. Sized for
+  # load/k6/waves.js too, the heaviest scenario, not just steady state.
   resources:
     requests:
       cpu: 50m
       memory: 64Mi
     limits:
       cpu: 200m
-      memory: 256Mi
+      memory: 1Gi
 
 kube-state-metrics:
   resources:
