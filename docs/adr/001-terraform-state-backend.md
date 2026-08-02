@@ -35,3 +35,9 @@ Discarded for this project for adding an extra resource and IAM dependency with 
 - **Exception to the project's ephemeral infrastructure principle** (see `CLAUDE.md`): the state bucket is the only resource that needs to persist between sessions — without it, there would be nowhere for future environments to write/retrieve their state history. This persistence is intentional and is recorded in the "Current state" section of `CLAUDE.md`, analogous to the decision planned for the DNS zone in Phase 4.
 - Any new environment (`terraform/envs/<env>/backend.tf`) must reference this bucket with `use_lockfile = true`, without depending on a DynamoDB table.
 - Destroying this bucket requires manually removing `prevent_destroy` — it's a deliberate barrier against accidents, not a permanent lock.
+
+## Update — 2026-08-02
+
+The persistence decision above is reverted. An unexpected ~R$600 charge against the project prompted a full teardown of every remaining resource, including everything under `terraform/bootstrap/`. `prevent_destroy` was removed from `aws_s3_bucket.terraform_state` so `terraform destroy` can proceed normally.
+
+This doesn't invalidate the reasoning above — native S3 locking without DynamoDB is still the right call for a single-operator lab — it just means the state bucket (and the rest of `terraform/bootstrap/`: ECR, Route 53 zone, ACM certificate, architecture showcase site) no longer gets a persistence exception. If the project resumes, `terraform/bootstrap/` is re-applied from scratch like any other environment, and re-issuing the wildcard certificate means re-delegating NS records at the domain registrar again (see ADR 008).

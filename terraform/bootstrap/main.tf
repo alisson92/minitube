@@ -20,10 +20,9 @@ resource "aws_s3_bucket" "terraform_state" {
     purpose = "terraform-state"
   }
 
-  # Intentional exception to the project's ephemeral infrastructure principle.
-  lifecycle {
-    prevent_destroy = true
-  }
+  # No longer a persistence exception: prevent_destroy was removed to allow
+  # a full teardown of terraform/bootstrap/ after a budget overrun.
+  # See docs/adr/001-terraform-state-backend.md#update.
 }
 
 resource "aws_s3_bucket_versioning" "terraform_state" {
