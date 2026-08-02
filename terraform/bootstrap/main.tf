@@ -22,7 +22,10 @@ resource "aws_s3_bucket" "terraform_state" {
 
   # No longer a persistence exception: prevent_destroy was removed to allow
   # a full teardown of terraform/bootstrap/ after a budget overrun.
+  # force_destroy so `terraform destroy` doesn't fail on remaining state
+  # object versions (versioning is enabled below).
   # See docs/adr/001-terraform-state-backend.md#update.
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_versioning" "terraform_state" {

@@ -12,6 +12,10 @@ resource "aws_s3_bucket" "architecture_site" {
   tags = {
     purpose = "architecture-showcase-site"
   }
+
+  # Allows `terraform destroy` to remove the bucket even with the deployed
+  # site's files still in it (see docs/adr/001-terraform-state-backend.md#update).
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "architecture_site" {

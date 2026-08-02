@@ -40,4 +40,6 @@ Discarded for this project for adding an extra resource and IAM dependency with 
 
 The persistence decision above is reverted. An unexpected ~R$600 charge against the project prompted a full teardown of every remaining resource, including everything under `terraform/bootstrap/`. `prevent_destroy` was removed from `aws_s3_bucket.terraform_state` so `terraform destroy` can proceed normally.
 
+A first destroy attempt still failed on non-empty resources: both S3 buckets (`terraform_state`, `architecture_site`) had objects/versions in them, and both `aws_ecr_repository` resources still had pushed images — neither `force_destroy` nor `force_delete` was set. Added `force_destroy = true` to both buckets and `force_delete = true` to both ECR repositories so `terraform destroy` removes their contents instead of erroring out.
+
 This doesn't invalidate the reasoning above — native S3 locking without DynamoDB is still the right call for a single-operator lab — it just means the state bucket (and the rest of `terraform/bootstrap/`: ECR, Route 53 zone, ACM certificate, architecture showcase site) no longer gets a persistence exception. If the project resumes, `terraform/bootstrap/` is re-applied from scratch like any other environment, and re-issuing the wildcard certificate means re-delegating NS records at the domain registrar again (see ADR 008).
