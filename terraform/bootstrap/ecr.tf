@@ -12,6 +12,10 @@ resource "aws_ecr_repository" "api" {
   image_scanning_configuration {
     scan_on_push = true
   }
+
+  # Allows `terraform destroy` to remove the repo even with images still
+  # pushed to it (see docs/adr/001-terraform-state-backend.md#update).
+  force_delete = true
 }
 
 resource "aws_ecr_repository" "transcoder" {
@@ -22,4 +26,6 @@ resource "aws_ecr_repository" "transcoder" {
   image_scanning_configuration {
     scan_on_push = true
   }
+
+  force_delete = true
 }
